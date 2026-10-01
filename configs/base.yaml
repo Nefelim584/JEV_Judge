@@ -1,0 +1,50 @@
+# Shared experiment config. Stack files (apple_silicon.yaml, cuda.yaml) may only
+# override `runtime`, `env`, `tuning.mode` and `train.per_device_batch_size`.
+
+seed: 42
+
+model:
+  base: answerdotai/ModernBERT-large
+  pooling: cls            # cls | mean
+  trunk_dim: 256
+  dropout: 0.1
+
+encoding:
+  max_len: 512
+  head_ratio: 0.5         # share of the state token budget kept from the head; the rest comes from the tail
+
+tuning:
+  mode: lora              # lora | full
+  lora:
+    r: 16
+    alpha: 32
+    dropout: 0.1
+    target_modules: [Wqkv, Wo, Wi]
+
+train:
+  effective_batch_size: 32
+  per_device_batch_size: 8
+  lr:
+    lora: 2.0e-4
+    full: 3.0e-5
+  warmup_ratio: 0.06
+  schedule: linear        # linear | cosine
+  weight_decay: 0.01
+  gradient_checkpointing: true
+  stage_a:
+    max_len: 512
+  stage_b:
+    max_len: 1024
+
+loss:
+  weights: {choice: 1.0, score: 1.0, bool: 1.0}
+  emd_lambda: 0.5
+  brier_mu: 0.1
+
+runtime:
+  device: auto            # auto | mps | cuda | cpu
+  precision: auto         # auto | fp32 | fp16 | bf16
+  attn_implementation: auto   # auto | sdpa | eager | flash_attention_2
+  optimizer: adamw        # adamw | adamw_8bit
+
+env: {}

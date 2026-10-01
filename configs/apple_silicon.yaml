@@ -1,0 +1,16 @@
+# Apple Silicon (M1 Pro, 16 GB). Stack overrides only.
+
+tuning:
+  mode: lora
+
+train:
+  per_device_batch_size: 8
+
+runtime:
+  device: mps
+  precision: fp32         # M1 has no native bf16; fp16 on MPS is risky
+  attn_implementation: sdpa
+  optimizer: adamw
+
+env:
+  PYTORCH_ENABLE_MPS_FALLBACK: "1"

@@ -1,0 +1,13 @@
+# CUDA (T4 16 GB on Colab / Kaggle 2xT4; any NVIDIA GPU). Stack overrides only.
+
+tuning:
+  mode: full
+
+train:
+  per_device_batch_size: 16
+
+runtime:
+  device: cuda
+  precision: auto         # fp16 + GradScaler on T4, bf16 on Ampere+
+  attn_implementation: auto   # sdpa on T4, flash_attention_2 on Ampere+ if installed
+  optimizer: adamw_8bit

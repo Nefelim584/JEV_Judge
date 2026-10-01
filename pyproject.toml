@@ -1,0 +1,48 @@
+[project]
+name = "jevlite"
+version = "0.1.0"
+description = "Typed decision model: Choice / Score / Bool answers with calibrated probabilities"
+readme = "README.md"
+requires-python = ">=3.12"
+# Lower bounds are kept loose on purpose: Colab / Kaggle ship their own CUDA torch, and pip
+# should not replace it. The exact versions in use are recorded by jevlite.device.device_report.
+dependencies = [
+    "accelerate>=1.0",
+    "datasets>=3.0",
+    "dotenv>=0.9.9",
+    "numpy>=1.26",
+    "peft>=0.13",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "scikit-learn>=1.4",
+    "torch>=2.5",
+    "transformers>=4.56",  # ModernBERT needs >=4.48; `dtype=` in from_pretrained needs >=4.56
+]
+
+[project.optional-dependencies]
+# MPS needs nothing beyond the core deps; the extra exists so both stacks install the same way.
+mps = []
+cuda = [
+    "bitsandbytes>=0.45 ; sys_platform == 'linux'",
+    # flash-attn (Ampere+ only) builds from source; install it manually on the target machine.
+]
+export = [
+    "onnx",
+    "onnxruntime",
+    "optimum",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.4.0",
+    "nbconvert>=7.17.1",
+    "nbformat>=5.11.1",
+    "pytest>=9.1.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
