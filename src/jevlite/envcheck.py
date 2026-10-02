@@ -9,9 +9,9 @@ import torch
 import torch.nn.functional as F
 from transformers import AutoTokenizer
 
-from .collate import build_request_batch, group_logits
+from .collate import build_request_batch, gather_markers, group_logits
 from .device import PeakMemory, Runtime, autocast, make_grad_scaler, make_optimizer, synchronize
-from .encoding import PairEncoder
+from .encoding import text_encoder_from_config
 from .model import build_encoder, count_parameters
 from .schema import Request
 
@@ -57,18 +57,19 @@ def request_forward_check(cfg: dict, rt: Runtime) -> dict:
     probe = torch.nn.Linear(encoder.config.hidden_size, 1).to(rt.device)
 
     request = Request.model_validate(SAMPLE_REQUEST)
-    pair_encoder = PairEncoder(tokenizer, cfg["encoding"]["max_len"], cfg["encoding"]["head_ratio"])
-    batch = build_request_batch(request, pair_encoder).to(rt.device)
+    batch = build_request_batch(request, text_encoder_from_config(cfg, tokenizer)).to(rt.device)
 
     with torch.no_grad(), autocast(rt):
-        h = encoder(input_ids=batch.input_ids, attention_mask=batch.attention_mask).last_hidden_state[:, 0]
-        row_logits = probe(h).squeeze(-1)
-    grouped = group_logits(row_logits, batch)
+        hidden = encoder(input_ids=batch.input_ids, attention_mask=batch.attention_mask).last_hidden_state
+        marker_logits = probe(gather_markers(hidden, batch)).squeeze(-1)
+    grouped = group_logits(marker_logits, batch)
     probs = torch.softmax(grouped, dim=-1)  # Bool rows have K=1 here; the real model uses a sigmoid
 
     padded_mass = probs.masked_fill(batch.candidate_mask, 0.0).sum().item()
     result = {
+        "encoding_mode": cfg["encoding"].get("mode", "packed"),
         "rows": batch.input_ids.shape[0],
+        "markers": batch.n_markers,
         "seq_len": batch.input_ids.shape[1],
         "grouped_shape": tuple(grouped.shape),
         "padded_candidate_mass": padded_mass,

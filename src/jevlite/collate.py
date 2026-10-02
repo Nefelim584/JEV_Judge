@@ -1,7 +1,9 @@
-"""Batching: flatten (state, question) items into candidate rows, pad, and map rows back.
+"""Batching: encode (state, item) pairs into padded sequences and map markers back to questions.
 
-Rows are the unit the encoder sees (one per candidate). Questions are the unit losses and
-outputs are computed over: logits are regrouped into ``[n_questions, K_max]`` with a mask.
+Sequences are the unit the encoder sees. Markers are the read-out slots: a ``[MASK]`` position per
+candidate in packed mode, ``[CLS]`` of each candidate row in pair mode. Questions are the unit losses and
+outputs are computed over: marker logits are regrouped into ``[n_questions, K_max]`` with a mask, the
+same way for both modes.
 """
 
 from __future__ import annotations
@@ -11,8 +13,8 @@ from typing import Sequence
 
 import torch
 
-from .encoding import PairEncoder
-from .schema import PRIM_TYPES, Question, Request, State
+from .encoding import Item, PackedEncoder, PairEncoder, item_questions
+from .schema import PRIM_TYPES, Request, State
 
 TYPE_IDS = {t: i for i, t in enumerate(PRIM_TYPES)}
 
@@ -21,9 +23,11 @@ TYPE_IDS = {t: i for i, t in enumerate(PRIM_TYPES)}
 class Batch:
     input_ids: torch.Tensor  # [R, L] long
     attention_mask: torch.Tensor  # [R, L] long
-    row_type: torch.Tensor  # [R] long, TYPE_IDS of the row's question
-    row_question: torch.Tensor  # [R] long, question index within the batch
-    row_candidate: torch.Tensor  # [R] long, candidate index within its question
+    marker_row: torch.Tensor  # [M] long, sequence that holds the marker
+    marker_pos: torch.Tensor  # [M] long, token position of the marker in its sequence
+    marker_type: torch.Tensor  # [M] long, TYPE_IDS of the marker's question
+    marker_question: torch.Tensor  # [M] long, question index within the batch
+    marker_candidate: torch.Tensor  # [M] long, candidate index within its question
     question_type: torch.Tensor  # [Q] long
     candidate_mask: torch.Tensor  # [Q, K_max] bool, True for real candidates
     truncated: torch.Tensor  # [Q] bool
@@ -32,6 +36,10 @@ class Batch:
     @property
     def n_questions(self) -> int:
         return len(self.question_ids)
+
+    @property
+    def n_markers(self) -> int:
+        return self.marker_row.shape[0]
 
     @property
     def k_max(self) -> int:
@@ -45,32 +53,39 @@ class Batch:
         return Batch(**moved)
 
 
-def build_batch(items: Sequence[tuple[State, Question]], encoder: PairEncoder) -> Batch:
-    """Encode every candidate of every (state, question) item into one padded batch."""
+def build_batch(items: Sequence[tuple[State, Item]], encoder: PairEncoder | PackedEncoder) -> Batch:
+    """Encode every (state, item) pair into one padded batch. An item is a question or a claim group."""
     if not items:
         raise ValueError("cannot build an empty batch")
 
     rows: list[list[int]] = []
-    row_type, row_question, row_candidate = [], [], []
+    marker_row, marker_pos, marker_type, marker_question, marker_candidate = [], [], [], [], []
     question_type, n_candidates, truncated, question_ids = [], [], [], []
 
     state_cache: dict[int, list[int]] = {}  # states shared between items (one request) are tokenised once
-    for q_index, (state, question) in enumerate(items):
+    for state, item in items:
         key = id(state)
         if key not in state_cache:
             state_cache[key] = encoder.tokenize_state(state)
-        encoded = encoder.encode_question(question, state_cache[key])
 
-        type_id = TYPE_IDS[question.type]
-        for k, ids in enumerate(encoded.input_ids):
-            rows.append(ids)
-            row_type.append(type_id)
-            row_question.append(q_index)
-            row_candidate.append(k)
-        question_type.append(type_id)
-        n_candidates.append(len(encoded.input_ids))
-        truncated.append(encoded.truncated)
-        question_ids.append(question.id)
+        questions = item_questions(item)
+        q_offset = len(question_ids)
+        q_truncated = [False] * len(questions)
+        for seq in encoder.encode_item(item, state_cache[key]):
+            for pos, j, k in seq.markers:
+                marker_row.append(len(rows))
+                marker_pos.append(pos)
+                marker_type.append(TYPE_IDS[questions[j].type])
+                marker_question.append(q_offset + j)
+                marker_candidate.append(k)
+                q_truncated[j] |= seq.truncated
+            rows.append(seq.input_ids)
+
+        for question, was_truncated in zip(questions, q_truncated, strict=True):
+            question_type.append(TYPE_IDS[question.type])
+            n_candidates.append(len(question.candidates))
+            truncated.append(was_truncated)
+            question_ids.append(question.id)
 
     input_ids, attention_mask = pad_rows(rows, encoder.tokenizer.pad_token_id)
     k_max = max(n_candidates)
@@ -79,9 +94,11 @@ def build_batch(items: Sequence[tuple[State, Question]], encoder: PairEncoder) -
     return Batch(
         input_ids=input_ids,
         attention_mask=attention_mask,
-        row_type=torch.tensor(row_type),
-        row_question=torch.tensor(row_question),
-        row_candidate=torch.tensor(row_candidate),
+        marker_row=torch.tensor(marker_row),
+        marker_pos=torch.tensor(marker_pos),
+        marker_type=torch.tensor(marker_type),
+        marker_question=torch.tensor(marker_question),
+        marker_candidate=torch.tensor(marker_candidate),
         question_type=torch.tensor(question_type),
         candidate_mask=candidate_mask,
         truncated=torch.tensor(truncated),
@@ -89,8 +106,8 @@ def build_batch(items: Sequence[tuple[State, Question]], encoder: PairEncoder) -
     )
 
 
-def build_request_batch(request: Request, encoder: PairEncoder) -> Batch:
-    """All candidates of all questions of a request in one batch (the v1 "single parallel pass")."""
+def build_request_batch(request: Request, encoder: PairEncoder | PackedEncoder) -> Batch:
+    """All questions of a request in one batch, one item per question (the v1 "single parallel pass")."""
     return build_batch([(request.state, q) for q in request.questions], encoder)
 
 
@@ -105,15 +122,20 @@ def pad_rows(rows: list[list[int]], pad_id: int) -> tuple[torch.Tensor, torch.Te
     return input_ids, attention_mask
 
 
-def group_logits(row_logits: torch.Tensor, batch: Batch) -> torch.Tensor:
-    """``[R]`` row logits → ``[Q, K_max]`` fp32, with padded candidates set to ``-inf``."""
+def gather_markers(hidden: torch.Tensor, batch: Batch) -> torch.Tensor:
+    """``[R, L, H]`` encoder output → ``[M, H]`` hidden states at the markers."""
+    return hidden[batch.marker_row, batch.marker_pos]
+
+
+def group_logits(marker_logits: torch.Tensor, batch: Batch) -> torch.Tensor:
+    """``[M]`` marker logits → ``[Q, K_max]`` fp32, with padded candidates set to ``-inf``."""
     grouped = torch.full(
-        (batch.n_questions, batch.k_max), float("-inf"), dtype=torch.float32, device=row_logits.device
+        (batch.n_questions, batch.k_max), float("-inf"), dtype=torch.float32, device=marker_logits.device
     )
-    grouped[batch.row_question, batch.row_candidate] = row_logits.float()
+    grouped[batch.marker_question, batch.marker_candidate] = marker_logits.float()
     return grouped
 
 
 def ungroup(grouped: torch.Tensor, batch: Batch) -> torch.Tensor:
-    """Inverse of :func:`group_logits`: ``[Q, K_max]`` → ``[R]`` in row order."""
-    return grouped[batch.row_question, batch.row_candidate]
+    """Inverse of :func:`group_logits`: ``[Q, K_max]`` → ``[M]`` in marker order."""
+    return grouped[batch.marker_question, batch.marker_candidate]
