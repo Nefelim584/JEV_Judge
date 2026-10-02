@@ -1,4 +1,4 @@
-"""Format of (question, chunks, answer) triples exported from our system (TODO Phase 2, 3).
+"""Format of (question, chunks, answer) triples exported from our system (TODO Phase 11).
 
 One JSONL line per judged answer:
 
