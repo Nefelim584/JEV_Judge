@@ -137,6 +137,14 @@ def risk_coverage(confidence, correct) -> dict:
     return out
 
 
+def downsample_curve(coverage, risk, n_points: int = 51) -> dict:
+    """Risk at ``n_points`` evenly spaced coverages (for reports and plots), from a full curve."""
+    coverage, risk = _np(coverage), _np(risk)
+    grid = np.linspace(1.0 / coverage.size, 1.0, min(n_points, coverage.size))
+    idx = np.clip(np.ceil(grid * coverage.size).astype(int) - 1, 0, coverage.size - 1)
+    return {"coverage": coverage[idx].tolist(), "risk": risk[idx].tolist()}
+
+
 # ---------------------------------------------------------------------------- per primitive
 
 
@@ -155,6 +163,7 @@ def _summary(n: int, accuracy: float, nll: float, brier: float, conf, correct, c
         "eaurc": rc["eaurc"],
         **{k: v for k, v in rc.items() if k.startswith("selective_acc@")},
         "reliability": reliability_bins(conf, correct, n_bins),
+        "risk_coverage": downsample_curve(rc["coverage"], rc["risk"]),
     }
 
 

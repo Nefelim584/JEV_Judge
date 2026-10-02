@@ -54,3 +54,15 @@ uv run python scripts/probe_blackbox.py --baseline laya --data data/test.jsonl -
 # token lengths of exported judge triples (decides whether long-context Stage C is needed)
 uv run python scripts/judge_length_stats.py --data data/judge_export.jsonl --out reports/judge_lengths
 ```
+
+## Reports with charts
+
+Markdown reports with matplotlib charts and an interactive plotly twin of each (`uv sync --extra reports`):
+
+```bash
+# compare eval reports; repeat a name for seeds, use name@x for learning-curve points
+uv run python scripts/make_report.py compare --out reports/baselines \
+    --run nli=reports/nli/report.json --run laya=reports/laya/report.json
+# training runs (metrics.jsonl written by jevlite.reports.training.TrainingLog)
+uv run python scripts/make_report.py training --out reports/stage_a --run lora=runs/stage_a_lora --run full=runs/stage_a_full
+```

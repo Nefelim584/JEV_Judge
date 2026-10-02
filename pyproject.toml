@@ -32,6 +32,10 @@ export = [
     "onnxruntime",
     "optimum",
 ]
+reports = [
+    "matplotlib>=3.8",
+    "plotly>=5.20",
+]
 
 [dependency-groups]
 dev = [
