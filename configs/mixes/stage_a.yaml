@@ -1,0 +1,52 @@
+# Stage A sampling mix: public data only (DATASETS.md section 0, approved 2026-10-02).
+# Built by scripts/build_mix.py; the logic is in jevlite.data.mix.
+#
+#   cap       training records kept per source (stable hash of the id); null = all
+#   weight    share of the source inside its primitive, relative to its pool size (default 1)
+#   fit_only  keep only records whose state fits max_len untruncated (ratings)
+#   eval_cap  records kept per eval split (calib, test_in, test_ood) and source
+
+dir: data/public
+tokenizer: answerdotai/ModernBERT-large
+max_len: 512                # = train.stage_a.max_len
+seed: 42
+
+total: 300000               # training records per epoch
+primitive_weights: {bool: 0.5, choice: 0.2, score: 0.3}
+max_repeat: 2.0             # a pool may be repeated at most this many times per epoch
+eval_cap: 1000
+
+sources:
+  # Bool / Choice-3 (NLI and fact checking: about half of each source is Bool, half Choice-3)
+  vitaminc: {cap: 60000}
+  tabfact: {cap: 20000}       # Bool only
+  multi_nli: {cap: 40000}     # low weight via the cap
+  wanli: {cap: 20000}
+  snli: {cap: 20000}
+  # Bool: yes/no QA, answerability, paraphrase
+  boolq: {}
+  squad_v2: {cap: 30000}
+  clapnq: {}
+  qnli: {cap: 15000}
+  paws: {cap: 10000}
+  # Choice: multiple-choice QA
+  arc: {}
+  openbookqa: {}
+  commonsense_qa: {}
+  cosmos_qa: {}
+  social_iqa: {cap: 20000}
+  # Choice: classification with labels as options
+  clinc150: {cap: 15000}
+  massive: {}
+  dbpedia14: {cap: 10000}
+  go_emotions: {cap: 15000}
+  # Choice K = 2: summary preferences
+  summarize_from_feedback: {cap: 30000}
+  # Score: rubric ratings; truncated states are dropped
+  helpsteer2: {fit_only: true}
+  helpsteer3: {fit_only: true}   # p50 state 1.7k tokens: few records fit 512 (mostly a Stage B source)
+  # test_ood only (held out entirely)
+  contract_nli: {eval_cap: 3000}
+  banking77: {eval_cap: 3000}
+
+# Not converted yet: FEVER (cap 40k), HoVer (18k), FEVEROUS (30k), Natural Questions (30k).
