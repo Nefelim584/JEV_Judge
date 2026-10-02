@@ -13,6 +13,7 @@ from jevlite.data.public.base import (
     nli_records,
     pick_template,
     sample_candidates,
+    unique_pairs,
 )
 from jevlite.data.public.factcheck import evidence_window, table_to_text
 from jevlite.schema import MAX_CANDIDATES
@@ -21,9 +22,9 @@ from jevlite.schema import MAX_CANDIDATES
 ROWS = {
     "vitaminc": ("train", {"unique_id": "u1", "claim": "X has 5 staff.", "evidence": "X has five staff.", "label": "SUPPORTS", "revision_type": "real"}),
     "tabfact": ("train", {"table_id": "t1.csv", "idx": 0, "table_text": "year#team\n1999#a\n2000#b", "caption": "seasons", "statement": "team a played in 1999", "label": 1}),
-    "multi_nli": ("train", {"pairID": "p1", "premise": "A man sleeps.", "hypothesis": "A man is awake.", "label": 2, "genre": "fiction"}),
+    "multi_nli": ("train", {"idx": 0, "pairID": "p1", "premise": "A man sleeps.", "hypothesis": "A man is awake.", "label": 2, "genre": "fiction"}),
     "wanli": ("train", {"id": "w1", "premise": "It rained.", "hypothesis": "The ground is wet.", "gold": "neutral"}),
-    "snli": ("train", {"premise": "A dog runs.", "hypothesis": "An animal moves.", "label": 0}),
+    "snli": ("train", {"idx": 0, "premise": "A dog runs.", "hypothesis": "An animal moves.", "label": 0}),
     "qnli": ("train", {"idx": 1, "question": "When did it start?", "sentence": "It started in 1990.", "label": 0}),
     "paws": ("train", {"id": 1, "sentence1": "A met B in Paris.", "sentence2": "In Paris, A met B.", "label": 1}),
     "boolq": ("train", {"question": "is the sky blue", "answer": True, "passage": "The sky is blue."}),
@@ -173,6 +174,20 @@ def test_skipped_rows():
     assert list(get_converter("multi_nli").convert({**ROWS["multi_nli"][1], "label": -1}, "train")) == []
     dup = {**ROWS["arc"][1], "choices": {"text": ["heat", "heat"], "label": ["A", "B"]}}
     assert list(get_converter("arc").convert(dup, "train")) == []
+
+
+def test_unique_pairs_collapses_repeats_and_drops_conflicts():
+    rows = [
+        {"p": "a", "h": "x", "label": 0},
+        {"p": "a", "h": "x", "label": 0},  # repeat, same label: collapsed
+        {"p": "b", "h": "y", "label": 0},
+        {"p": "b", "h": "y", "label": 2},  # conflicting labels: both dropped
+        {"p": "c", "h": "z", "label": 1},
+    ]
+    kept = list(unique_pairs(rows, ("p", "h"), "label"))
+    assert [(r["p"], r["idx"]) for r in kept] == [("a", 0), ("c", 4)]
+    streamed = list(unique_pairs(iter(rows), ("p", "h"), "label", streaming=True))
+    assert [r["idx"] for r in streamed] == [0, 2, 4]
 
 
 def test_multi_nli_mismatched_is_ood():

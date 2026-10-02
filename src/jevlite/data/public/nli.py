@@ -5,7 +5,18 @@ from __future__ import annotations
 from typing import Iterable
 
 from ..unified import Record
-from .base import CONTRADICTED, ENTAILED, NOT_MENTIONED, Converter, Template, answerable_record, hf_rows, nli_records, pick_template
+from .base import (
+    CONTRADICTED,
+    ENTAILED,
+    NOT_MENTIONED,
+    Converter,
+    Template,
+    answerable_record,
+    hf_rows,
+    nli_records,
+    pick_template,
+    unique_pairs,
+)
 
 # MultiNLI, SNLI and the GLUE copies: 0 entailment, 1 neutral, 2 contradiction (-1 = no gold label).
 _GLUE_NLI = {0: ENTAILED, 1: NOT_MENTIONED, 2: CONTRADICTED}
@@ -21,13 +32,16 @@ class MultiNLI(Converter):
     splits = {"train": "train", "validation_matched": "test_in", "validation_mismatched": "test_ood"}
 
     def rows(self, source_split: str) -> Iterable[dict]:
-        return hf_rows("nyu-mll/multi_nli", None, source_split, self.streaming)
+        # pairID is not unique (it repeats across different hypotheses), and a few pairs repeat with
+        # conflicting labels.
+        rows = hf_rows("nyu-mll/multi_nli", None, source_split, self.streaming)
+        return unique_pairs(rows, ("premise", "hypothesis"), "label", self.streaming)
 
     def convert(self, row: dict, source_split: str) -> Iterable[Record]:
         if row["label"] not in _GLUE_NLI:
             return []
         return nli_records(
-            self, key=(source_split, row["pairID"]), source_split=source_split, state=row["premise"],
+            self, key=(source_split, row["idx"]), source_split=source_split, state=row["premise"],
             claim=row["hypothesis"], label=_GLUE_NLI[row["label"]], domain=row["genre"],
         )
 
@@ -41,14 +55,15 @@ class SNLI(Converter):
     splits = {"train": "train", "test": "test_in"}
 
     def rows(self, source_split: str) -> Iterable[dict]:
-        return hf_rows("stanfordnlp/snli", None, source_split, self.streaming)
+        # No ids, and some pairs repeat, a few of them with conflicting labels.
+        rows = hf_rows("stanfordnlp/snli", None, source_split, self.streaming)
+        return unique_pairs(rows, ("premise", "hypothesis"), "label", self.streaming)
 
     def convert(self, row: dict, source_split: str) -> Iterable[Record]:
         if row["label"] not in _GLUE_NLI:
             return []
-        # SNLI has no ids; premise + hypothesis is unique enough.
         return nli_records(
-            self, key=(source_split, row["premise"], row["hypothesis"]), source_split=source_split,
+            self, key=(source_split, row["idx"]), source_split=source_split,
             state=row["premise"], claim=row["hypothesis"], label=_GLUE_NLI[row["label"]],
         )
 

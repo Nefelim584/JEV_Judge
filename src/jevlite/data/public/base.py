@@ -143,6 +143,30 @@ def hf_rows(hf_id: str, config: str | None, split: str, streaming: bool = False,
         yield from load_dataset(hf_id, config, split=split, streaming=streaming)
 
 
+def unique_pairs(rows: Iterable[dict], text_keys: Sequence[str], label_key: str, streaming: bool = False) -> Iterator[dict]:
+    """Rows with a repeated text (``text_keys``) collapsed to the first one; texts annotated with
+    conflicting labels are dropped entirely. Adds ``idx``, the row's position in the source split.
+
+    Streaming (smoke runs) cannot look ahead, so it only drops repeats.
+    """
+    def text(row: dict) -> tuple:
+        return tuple(row[k] for k in text_keys)
+
+    rows = enumerate(rows)
+    labels: dict[tuple, set] = {}
+    if not streaming:
+        rows = list(rows)
+        for _, row in rows:
+            labels.setdefault(text(row), set()).add(row[label_key])
+    seen: set[tuple] = set()
+    for i, row in rows:
+        t = text(row)
+        if t in seen or len(labels.get(t, ())) > 1:
+            continue
+        seen.add(t)
+        yield {**row, "idx": i}
+
+
 # ---------------------------------------------------------------------------------------------------
 # Converters
 
