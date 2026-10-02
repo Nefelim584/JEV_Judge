@@ -241,3 +241,34 @@ def test_risk_coverage_ties_use_expected_order():
     np.testing.assert_allclose(rc["risk"], 0.25)
     perm = rng.permutation(4)
     assert risk_coverage(np.full(4, 0.5), correct[perm])["aurc"] == pytest.approx(rc["aurc"])
+
+
+# ---------------------------------------------------------------------------- agreement
+
+
+def test_cohen_kappa():
+    from jevlite.metrics import cohen_kappa
+
+    assert cohen_kappa([0, 1, 2, 1], [0, 1, 2, 1]) == pytest.approx(1.0)
+    # Quadratic weights punish far errors more than near ones.
+    near = cohen_kappa([0, 1, 2, 3, 3], [0, 1, 2, 2, 3], weights="quadratic", n_labels=4)
+    far = cohen_kappa([0, 1, 2, 0, 3], [0, 1, 2, 3, 3], weights="quadratic", n_labels=4)
+    assert near > far
+    assert np.isnan(cohen_kappa([1, 1], [1, 1]))
+
+
+def test_spearman():
+    from jevlite.metrics import spearman
+
+    assert spearman([1, 2, 3], [10, 20, 30]) == pytest.approx(1.0)
+    assert spearman([1, 2, 3], [3, 2, 1]) == pytest.approx(-1.0)
+    assert np.isnan(spearman([1, 1, 1], [1, 2, 3]))
+
+
+def test_bootstrap_ci():
+    from jevlite.metrics import bootstrap_ci
+
+    x = np.random.default_rng(0).normal(size=500)
+    lo, hi = bootstrap_ci(np.mean, x, n_boot=300)
+    assert lo < x.mean() < hi and hi - lo < 0.3
+    assert all(np.isnan(bootstrap_ci(lambda a: float("nan"), x, n_boot=5)))

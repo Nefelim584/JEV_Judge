@@ -17,6 +17,7 @@ Conventions
 from __future__ import annotations
 
 import math
+import warnings
 
 import numpy as np
 
@@ -219,3 +220,58 @@ def bool_metrics(prob, target, confidence=None, n_bins: int = DEFAULT_BINS) -> d
     out["ece"], out["mce"] = ece_mce(p, t, n_bins)
     out["reliability"] = reliability_bins(p, t, n_bins)
     return out
+
+
+# ------------------------------------------------------------------------ agreement (TODO 2.13)
+
+
+def cohen_kappa(pred, target, weights: str | None = None, n_labels: int | None = None) -> float:
+    """Cohen's κ between hard predictions and hard targets (class indices).
+
+    ``weights="quadratic"`` gives weighted κ for ordinal labels (Score). NaN when κ is undefined,
+    e.g. when both sides use a single label.
+    """
+    from sklearn.metrics import cohen_kappa_score
+
+    p, t = np.asarray(pred).astype(int), np.asarray(target).astype(int)
+    if p.shape != t.shape or p.ndim != 1 or p.size == 0:
+        raise ValueError("pred and target must be equal-length non-empty 1-D arrays")
+    labels = list(range(n_labels)) if n_labels else None
+    with warnings.catch_warnings(), np.errstate(divide="ignore", invalid="ignore"):
+        warnings.simplefilter("ignore")  # undefined κ (a single label) is reported as NaN
+        k = cohen_kappa_score(t, p, weights=weights, labels=labels)
+    return float(k)
+
+
+def spearman(a, b) -> float:
+    """Spearman rank correlation; NaN when either side is constant."""
+    from scipy.stats import spearmanr
+
+    a, b = _np(a), _np(b)
+    if a.shape != b.shape or a.ndim != 1 or a.size < 2:
+        raise ValueError("a and b must be equal-length 1-D arrays with at least 2 values")
+    if np.ptp(a) == 0 or np.ptp(b) == 0:
+        return float("nan")
+    return float(spearmanr(a, b).statistic)
+
+
+def bootstrap_ci(fn, *arrays, n_boot: int = 1000, alpha: float = 0.05, seed: int = 0) -> tuple[float, float]:
+    """Percentile bootstrap CI of ``fn(*arrays)``, resampling rows of all arrays together.
+
+    Resamples where ``fn`` is undefined (NaN) are dropped.
+    """
+    arrays = [np.asarray(a) for a in arrays]
+    n = arrays[0].shape[0]
+    if n == 0 or any(a.shape[0] != n for a in arrays):
+        raise ValueError("arrays must be non-empty and share the first dimension")
+    rng = np.random.default_rng(seed)
+    stats = []
+    for _ in range(n_boot):
+        idx = rng.integers(0, n, n)
+        value = fn(*(a[idx] for a in arrays))
+        if not math.isnan(value):
+            stats.append(value)
+    if not stats:
+        return float("nan"), float("nan")
+    lo, hi = np.quantile(stats, [alpha / 2, 1 - alpha / 2])
+    return float(lo), float(hi)

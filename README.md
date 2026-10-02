@@ -38,3 +38,19 @@ LoRA and full fine-tuning train steps at training shape, reporting peak memory.
 ```bash
 uv run jupyter nbconvert --to notebook --execute --inplace notebooks/apple_silicon/00_env_check.ipynb
 ```
+
+## Evaluation and baselines
+
+Data and predictions are JSONL files in the unified format (`jevlite.data.unified`).
+
+```bash
+# zero-shot baselines → predictions
+uv run python scripts/predict_baseline.py --baseline nli  --data data/test.jsonl --out preds/nli.jsonl
+uv run python scripts/predict_baseline.py --baseline laya --data data/test.jsonl --out preds/laya.jsonl
+# report per primitive and slice (JSON + markdown), with bootstrap CIs
+uv run python scripts/eval.py --data data/test.jsonl --pred preds/nli.jsonl --out reports/nli --bootstrap 1000
+# black-box checks: option-order sensitivity, IIA, confidence on nonsense inputs
+uv run python scripts/probe_blackbox.py --baseline laya --data data/test.jsonl --out reports/laya_probes.json
+# token lengths of exported judge triples (decides whether long-context Stage C is needed)
+uv run python scripts/judge_length_stats.py --data data/judge_export.jsonl --out reports/judge_lengths
+```
