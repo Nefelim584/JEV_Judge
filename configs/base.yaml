@@ -5,7 +5,8 @@ seed: 42
 
 model:
   base: answerdotai/ModernBERT-large
-  pooling: cls            # cls | mean
+  readout: marker         # marker ([MASK] in packed mode, [CLS] in pair mode) | mean (pair mode only)
+  decision_layers: 0      # > 0: Laya-style transformer layers before the read-out (ablation)
   trunk_dim: 256
   dropout: 0.1
 
