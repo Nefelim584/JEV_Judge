@@ -1,4 +1,4 @@
-"""Black-box checks of a predictor (TODO Phase 2 for Laya, Phase 10 for our packed model).
+"""Black-box checks of a predictor (TODO Phase 2 for Laya, Phase 8 for our packed model).
 
 - **Order sensitivity**: how much the probability of an option moves when the options are permuted.
   A model that reads options independently (pair mode) scores 0.

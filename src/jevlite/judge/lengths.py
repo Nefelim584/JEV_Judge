@@ -1,4 +1,4 @@
-"""Token-length statistics of exported judge triples (TODO 2.11, Phase 2).
+"""Token-length statistics of exported judge triples (TODO 2.11, Phase 11).
 
 Lengths are measured with the packed layout the judge will use (2.12), not estimated:
 

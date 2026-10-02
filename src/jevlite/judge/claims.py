@@ -1,6 +1,6 @@
 """Rule-based sentence splitting for the judge (TODO 2.12, step 1).
 
-First version, used for length statistics. Phase 8 refines it (abbreviations, lists, quotes) and
+First version, used for length statistics. Phase 10 refines it (abbreviations, lists, quotes) and
 adds the non-factual filter. Training data must be split by the same function as inference.
 """
 
