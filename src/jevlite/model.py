@@ -22,19 +22,48 @@ from .log import logger
 from .schema import PRIM_TYPES
 
 READOUTS = ("marker", "mean")
+INITS = ("base", "laya")
+
+
+def load_laya_encoder(checkpoint: str = "base", attn_implementation: str = "sdpa") -> torch.nn.Module:
+    """The ModernBERT encoder of a Laya checkpoint (TODO section 7), in fp32.
+
+    Only the encoder is reused. Laya's decision head does not map onto ours: it adds a question-type
+    embedding before its layers, uses ReLU layers and a different scorer, and has an act head.
+    """
+    from safetensors.torch import load_file
+    from transformers import AutoConfig
+
+    from .baselines.laya import download
+
+    model_dir = download(checkpoint)
+    encoder = AutoModel.from_config(AutoConfig.from_pretrained(model_dir / "encoder"), attn_implementation=attn_implementation)
+    prefix = "encoder."
+    state = {k.removeprefix(prefix): v for k, v in load_file(str(model_dir / "model.safetensors")).items() if k.startswith(prefix)}
+    encoder.load_state_dict(state, strict=True)
+    logger.info("encoder initialised from Laya ({}): {} tensors", checkpoint, len(state))
+    return encoder.float()
+
+
+def load_base_encoder(cfg: dict, rt: Runtime) -> torch.nn.Module:
+    """The initial encoder weights selected by ``model.init``: ``base`` (``model.base`` from the Hub) or
+    ``laya`` (``model.laya_checkpoint``)."""
+    m = cfg["model"]
+    init = m.get("init", "base")
+    if init == "base":
+        return AutoModel.from_pretrained(m["base"], attn_implementation=rt.attn_implementation, dtype=torch.float32)
+    if init == "laya":
+        return load_laya_encoder(m.get("laya_checkpoint", "base"), rt.attn_implementation)
+    raise ValueError(f"unknown model.init {init!r}, expected one of {INITS}")
 
 
 def build_encoder(cfg: dict, rt: Runtime, mode: str | None = None) -> torch.nn.Module:
-    """Load the base encoder in fp32 (AMP casts on the fly), optionally wrapped with LoRA.
+    """Load the initial encoder in fp32 (AMP casts on the fly), optionally wrapped with LoRA.
 
     ``mode`` defaults to ``cfg['tuning']['mode']``: ``lora`` or ``full``.
     """
     mode = mode or cfg["tuning"]["mode"]
-    encoder = AutoModel.from_pretrained(
-        cfg["model"]["base"],
-        attn_implementation=rt.attn_implementation,
-        dtype=torch.float32,
-    )
+    encoder = load_base_encoder(cfg, rt)
     if cfg["train"]["gradient_checkpointing"]:
         encoder.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
@@ -172,7 +201,7 @@ def build_model(cfg: dict, rt: Runtime, mode: str | None = None) -> JevLite:
     trainable, total = count_parameters(model)
     head = sum(p.numel() for p in model.head_parameters())
     logger.info(
-        "model {} ({}): {:,} / {:,} parameters trainable ({:.2%}), heads {:,}",
-        m["base"], mode or cfg["tuning"]["mode"], trainable, total, trainable / total, head,
+        "model {} (init {}, {}): {:,} / {:,} parameters trainable ({:.2%}), heads {:,}",
+        m["base"], m.get("init", "base"), mode or cfg["tuning"]["mode"], trainable, total, trainable / total, head,
     )
     return model

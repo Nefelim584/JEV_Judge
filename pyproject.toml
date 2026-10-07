@@ -10,6 +10,7 @@ dependencies = [
     "accelerate>=1.0",
     "datasets>=3.0",
     "dotenv>=0.9.9",
+    "loguru>=0.7",
     "numpy>=1.26",
     "peft>=0.13",
     "pydantic>=2.7",

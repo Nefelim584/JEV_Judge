@@ -5,6 +5,8 @@ seed: 42
 
 model:
   base: answerdotai/ModernBERT-large
+  init: base              # base (model.base from the Hub) | laya (Laya's encoder, TODO section 7; heads start fresh)
+  laya_checkpoint: base   # base | typed-decisions (multilingual is mmBERT-base, not ModernBERT-large)
   readout: marker         # marker ([MASK] in packed mode, [CLS] in pair mode) | mean (pair mode only)
   decision_layers: 0      # > 0: Laya-style transformer layers before the read-out (ablation)
   trunk_dim: 256

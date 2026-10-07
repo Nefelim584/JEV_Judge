@@ -39,6 +39,20 @@ LoRA and full fine-tuning train steps at training shape, reporting peak memory.
 uv run jupyter nbconvert --to notebook --execute --inplace notebooks/apple_silicon/00_env_check.ipynb
 ```
 
+## Public data
+
+Converters for the approved Stage A datasets (`DATASETS.md`, section 0) write one JSONL file and one
+stats file per dataset. Raw downloads are cached in `data/raw`.
+
+```bash
+# smoke run: the first 200 rows of every source split, HF datasets streamed
+uv run python scripts/convert_public.py --datasets all --limit 200 --out data/smoke
+# full conversion (TabFact downloads a ~770 MB archive on the first run)
+uv run python scripts/convert_public.py --datasets all --out data/public
+# training mix: caps per source, primitive weights, eval subsets (configs/mixes/stage_a.yaml)
+uv run python scripts/build_mix.py --config configs/mixes/stage_a.yaml --out data/mix/stage_a --epochs 2
+```
+
 ## Evaluation and baselines
 
 Data and predictions are JSONL files in the unified format (`jevlite.data.unified`).
