@@ -143,6 +143,7 @@ class DBpedia14(Converter):
     domain = "wiki"
     family = "topic"
     license = "CC BY-SA 3.0"
+    share_alike = True
     origin = "hf:fancyzhx/dbpedia_14"
     splits = {"train": "train", "test": "test_in"}
 

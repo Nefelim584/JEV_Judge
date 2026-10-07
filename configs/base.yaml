@@ -38,6 +38,7 @@ train:
   stage_a:
     max_len: 512
     mix: mixes/stage_a.yaml   # relative to configs/; built by scripts/build_mix.py
+                              # no-SA version: mixes/stage_a_nosa.yaml (experiment override)
   stage_b:
     max_len: 1024
 

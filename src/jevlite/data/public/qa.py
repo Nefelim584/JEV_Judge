@@ -19,6 +19,7 @@ class BoolQ(Converter):
     domain = "wiki"
     family = "yes_no_qa"
     license = "CC BY-SA 3.0"
+    share_alike = True
     origin = "hf:google/boolq"
 
     def rows(self, source_split: str) -> Iterable[dict]:
@@ -44,6 +45,7 @@ class SQuAD2(Converter):
     domain = "wiki"
     family = "answerable"
     license = "CC BY-SA 4.0"
+    share_alike = True
     origin = "hf:rajpurkar/squad_v2"
 
     def rows(self, source_split: str) -> Iterable[dict]:
@@ -66,6 +68,7 @@ class ClapNQ(Converter):
     domain = "wiki"
     family = "answerable"
     license = "Apache-2.0 (NQ text: CC BY-SA 3.0)"
+    share_alike = True
     origin = "https://github.com/primeqa/clapnq"
     splits = {"train": "train", "dev": "test_in"}
 

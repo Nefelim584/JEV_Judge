@@ -180,6 +180,10 @@ class Converter:
     license: ClassVar[str]
     origin: ClassVar[str]
     held_out: ClassVar[bool] = False
+    # CC BY-SA data. Legal allows it (2026-10-07), but a no-SA mix (``share_alike: false``) leaves it
+    # out of train and calib. ``share_alike_domains`` marks only some domains of a source as SA.
+    share_alike: ClassVar[bool] = False
+    share_alike_domains: ClassVar[frozenset[str]] = frozenset()
     # source split → target split; "train" is carved into train + calib.
     splits: ClassVar[dict[str, str]] = {"train": "train", "validation": "test_in"}
 
@@ -190,6 +194,10 @@ class Converter:
 
     def convert(self, row: dict, source_split: str) -> Iterable[Record]:
         raise NotImplementedError
+
+    @classmethod
+    def is_share_alike(cls, domain: str | None = None) -> bool:
+        return cls.share_alike or domain in cls.share_alike_domains
 
     def target_split(self, source_split: str, *key: Any) -> str:
         if self.held_out:

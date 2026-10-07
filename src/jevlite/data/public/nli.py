@@ -27,6 +27,8 @@ class MultiNLI(Converter):
     name = "multi_nli"
     family = "nli"
     license = "OANC + CC BY-SA 3.0 / CC BY 3.0 (fiction)"
+    # Only the fiction genre has CC BY-SA texts; the rest is OANC.
+    share_alike_domains = frozenset({"fiction"})
     origin = "hf:nyu-mll/multi_nli"
     # The mismatched dev set has genres absent from train: it is OOD by construction.
     splits = {"train": "train", "validation_matched": "test_in", "validation_mismatched": "test_ood"}
@@ -51,6 +53,7 @@ class SNLI(Converter):
     domain = "captions"
     family = "nli"
     license = "CC BY-SA 4.0"
+    share_alike = True
     origin = "hf:stanfordnlp/snli"
     splits = {"train": "train", "test": "test_in"}
 
@@ -93,6 +96,7 @@ class QNLI(Converter):
     domain = "wiki"
     family = "answerable"
     license = "CC BY-SA 4.0 (from SQuAD 1.1)"
+    share_alike = True
     origin = "hf:nyu-mll/glue/qnli"
     # GLUE test labels are hidden.
     splits = {"train": "train", "validation": "test_in"}

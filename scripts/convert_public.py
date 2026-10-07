@@ -78,7 +78,8 @@ def main(argv: list[str] | None = None) -> None:
             failed.append(name)
             continue
         write_jsonl(out / f"{name}.jsonl", records)
-        s = {"source": name, "license": conv.license, "origin": conv.origin, **stats(records)}
+        s = {"source": name, "license": conv.license, "share_alike": conv.share_alike,
+             "share_alike_domains": sorted(conv.share_alike_domains), "origin": conv.origin, **stats(records)}
         (out / f"{name}.stats.json").write_text(json.dumps(s, indent=2, ensure_ascii=False))
         splits = ", ".join(f"{sp} {sum(c.values())}" for sp, c in s["splits"].items())
         print(f"[{name}] {s['n']} records: {splits}", flush=True)

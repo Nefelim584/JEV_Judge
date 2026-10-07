@@ -1,14 +1,24 @@
-"""Multiple-choice QA: Choice over the given answer options (``DATASETS.md`` section 0)."""
+"""Multiple-choice QA: Choice over the given answer options (``DATASETS.md`` section 0).
+
+Every MCQA set has a fixed number of options (ARC 3–5, OpenBookQA 4, CommonsenseQA 5, Cosmos QA 4,
+Social IQa 3). To vary K, about half of the records get 1–3 extra options **borrowed from other
+questions** of the same dataset and source split (``borrow_distractors``), inserted at random positions.
+"""
 
 from __future__ import annotations
 
 import csv
+import itertools
 import json
 import zipfile
-from typing import Iterable, Iterator, Sequence
+from typing import Any, Iterable, Iterator, Sequence
 
+from ...schema import MAX_CANDIDATES
 from ..unified import Record
-from .base import Converter, Template, fetch, hf_rows, pick_template
+from .base import Converter, Template, fetch, hf_rows, pick_template, rng_for
+
+BORROW_SHARE = 0.5
+BORROW_MAX = 3
 
 # No passage (ARC, OpenBookQA, CommonsenseQA): the question is the state.
 NO_CONTEXT = (
@@ -46,15 +56,55 @@ def mcqa_record(
     ]
 
 
+def borrow_distractors(
+    records: Sequence[Record], *key: Any, share: float = BORROW_SHARE, n_max: int = BORROW_MAX
+) -> list[Record]:
+    """Add 1…``n_max`` options taken from the other records to about ``share`` of the records.
+
+    A borrowed option never repeats one of the record's own options (case-insensitive), so the gold
+    option stays the only correct one. Records keep their order; the field ``borrowed_distractors``
+    holds the number of options added (0 for untouched records).
+    """
+    pool = sorted({c.strip() for r in records for c in r.candidates})
+    out = []
+    for r in records:
+        rng = rng_for("borrow", *key, r.id)
+        room = MAX_CANDIDATES - len(r.candidates)
+        if rng.random() >= share or room <= 0 or isinstance(r.target, list):
+            out.append(Record.model_validate({**r.model_dump(), "borrowed_distractors": 0}))
+            continue
+        n = min(rng.randint(1, n_max), room)
+        taken = {c.casefold() for c in r.candidates}
+        extra = [c for c in rng.sample(pool, min(len(pool), 4 * n + len(r.candidates))) if c.casefold() not in taken][:n]
+        options, gold = list(r.candidates), r.candidates[int(r.target)]
+        for c in extra:
+            options.insert(rng.randint(0, len(options)), c)
+        out.append(Record.model_validate({
+            **r.model_dump(), "candidates": options, "target": options.index(gold), "borrowed_distractors": len(extra),
+        }))
+    return out
+
+
+class _MCQA(Converter):
+    """Converts a whole source split at once, so that options can be borrowed across questions."""
+
+    def records(self, limit: int | None = None) -> Iterator[Record]:
+        for source_split in self.splits:
+            rows = itertools.islice(self.rows(source_split), limit)
+            records = [r for row in rows for r in self.convert(row, source_split)]
+            yield from borrow_distractors(records, self.name, source_split)
+
+
 def _letter_index(labels: Sequence[str], key: str) -> int:
     return list(labels).index(key) if key in labels else -1
 
 
-class ARC(Converter):
+class ARC(_MCQA):
     name = "arc"
     domain = "science_exams"
     family = "mcqa"
     license = "CC BY-SA 4.0"
+    share_alike = True
     origin = "hf:allenai/ai2_arc"
     splits = {"train": "train", "test": "test_in"}
 
@@ -71,7 +121,7 @@ class ARC(Converter):
         )
 
 
-class OpenBookQA(Converter):
+class OpenBookQA(_MCQA):
     name = "openbookqa"
     domain = "science_exams"
     family = "mcqa"
@@ -90,7 +140,7 @@ class OpenBookQA(Converter):
         )
 
 
-class CommonsenseQA(Converter):
+class CommonsenseQA(_MCQA):
     name = "commonsense_qa"
     domain = "commonsense"
     family = "mcqa"
@@ -110,7 +160,7 @@ class CommonsenseQA(Converter):
         )
 
 
-class CosmosQA(Converter):
+class CosmosQA(_MCQA):
     name = "cosmos_qa"
     domain = "blogs"
     family = "mcqa"
@@ -131,7 +181,7 @@ class CosmosQA(Converter):
         )
 
 
-class SocialIQa(Converter):
+class SocialIQa(_MCQA):
     name = "social_iqa"
     domain = "social"
     family = "mcqa"

@@ -22,6 +22,7 @@ class VitaminC(Converter):
     domain = "wiki"
     family = "factcheck"
     license = "CC BY-SA 3.0"
+    share_alike = True
     origin = "hf:tals/vitaminc"
     splits = {"train": "train", "test": "test_in"}
 

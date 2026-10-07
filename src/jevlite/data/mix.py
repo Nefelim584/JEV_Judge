@@ -15,6 +15,13 @@ primitive in the training data. Building a mix has two steps:
 Eval splits (``calib``, ``test_in``, ``test_ood``) are not weighted: every source keeps up to
 ``eval_cap`` records per split, the same ones every time.
 
+``share_alike: false`` builds the no-SA version (TODO Phase 3): CC BY-SA records (``Converter.is_share_alike``)
+are left out of ``train`` and ``calib``, the splits that fit parameters. ``test_in`` and ``test_ood``
+keep them, so both versions are compared on the same test sets.
+
+``extends: other.yaml`` starts from another mix config (relative to this file) and overrides it key by
+key; ``sources`` merge per source.
+
 Sources are read line by line and only the kept lines stay in memory, so a 3M-record mix builds on
 a 16 GB laptop.
 """
@@ -33,6 +40,7 @@ from typing import Any, Callable, Iterable, Iterator
 import yaml
 
 from ..schema import PRIM_TYPES
+from .public import CONVERTERS
 from .public.base import stable_hash
 from .unified import Record
 
@@ -46,6 +54,14 @@ class SourceSpec:
     weight: float = 1.0
     fit_only: bool = False
     eval_cap: int | None = None  # overrides the mix-level eval_cap
+    share_alike: bool | None = None  # None: from the source's converter (an error for unknown sources)
+
+    def is_share_alike(self, domain: str | None) -> bool:
+        if self.share_alike is not None:
+            return self.share_alike
+        if self.name not in CONVERTERS:
+            raise ValueError(f"source {self.name!r} has no converter: set share_alike for it in the mix config")
+        return CONVERTERS[self.name].is_share_alike(domain)
 
 
 @dataclass(frozen=True)
@@ -60,6 +76,7 @@ class MixConfig:
     max_len: int = 512
     tokenizer: str = "answerdotai/ModernBERT-large"
     seed: int = 42
+    share_alike: bool = True  # False: CC BY-SA records stay out of train and calib
 
     @classmethod
     def from_dict(cls, d: dict, name: str = "mix") -> MixConfig:
@@ -73,13 +90,29 @@ class MixConfig:
             name=d.get("name", name), dir=Path(d["dir"]), total=int(d["total"]), primitive_weights=weights,
             sources=sources, max_repeat=float(d.get("max_repeat", 2.0)), eval_cap=d.get("eval_cap", 2000),
             max_len=int(d.get("max_len", 512)), tokenizer=d.get("tokenizer", cls.tokenizer), seed=int(d.get("seed", 42)),
+            share_alike=bool(d.get("share_alike", True)),
         )
+
+
+def _merge(base: dict, override: dict) -> dict:
+    out = dict(base)
+    for k, v in override.items():
+        out[k] = _merge(base[k], v) if isinstance(v, dict) and isinstance(base.get(k), dict) else v
+    return out
+
+
+def read_mix_dict(path: str | Path) -> dict:
+    """The config dict with ``extends`` resolved (recursively)."""
+    path = Path(path)
+    with path.open() as f:
+        d = yaml.safe_load(f) or {}
+    parent = d.pop("extends", None)
+    return _merge(read_mix_dict(path.parent / parent), d) if parent else d
 
 
 def load_mix_config(path: str | Path) -> MixConfig:
     path = Path(path)
-    with path.open() as f:
-        return MixConfig.from_dict(yaml.safe_load(f), name=path.stem)
+    return MixConfig.from_dict(read_mix_dict(path), name=path.stem)
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -95,6 +128,8 @@ class Pools:
     # Training records seen before the cap / dropped by the fit filter, per source.
     available: dict[str, int] = field(default_factory=dict)
     dropped_unfit: dict[str, int] = field(default_factory=dict)
+    # Train + calib records left out as CC BY-SA (``share_alike: false``), per source.
+    dropped_sa: dict[str, int] = field(default_factory=dict)
 
 
 class _Capped:
@@ -147,7 +182,7 @@ def build_pools(cfg: MixConfig, fits: Callable[[dict], bool] | None = None) -> P
         eval_cap = spec.eval_cap if spec.eval_cap is not None else cfg.eval_cap
         train = _Capped(spec.cap)
         evals = {s: _Capped(eval_cap) for s in EVAL_SPLITS}
-        available = unfit = 0
+        available = unfit = sa = 0
         with path.open() as f:
             for line in f:
                 if not line.strip():
@@ -155,6 +190,9 @@ def build_pools(cfg: MixConfig, fits: Callable[[dict], bool] | None = None) -> P
                 row = json.loads(line)
                 split = row["split"]
                 if split != "train" and split not in evals:
+                    continue
+                if not cfg.share_alike and split in ("train", "calib") and spec.is_share_alike(row.get("domain")):
+                    sa += 1
                     continue
                 available += split == "train"
                 # The fit filter applies to eval splits too: a truncated rating is noisy to score.
@@ -174,6 +212,7 @@ def build_pools(cfg: MixConfig, fits: Callable[[dict], bool] | None = None) -> P
                 pools.eval[(split, spec.name)] = lines
         pools.available[spec.name] = available
         pools.dropped_unfit[spec.name] = unfit
+        pools.dropped_sa[spec.name] = sa
     return pools
 
 
@@ -272,6 +311,7 @@ def mix_report(cfg: MixConfig, pools: Pools, allocations: list[Allocation]) -> d
         evals[split][source] = len(lines)
     return {
         "name": cfg.name, "total": cfg.total, "primitive_weights": cfg.primitive_weights, "max_len": cfg.max_len,
+        "share_alike": cfg.share_alike, "dropped_sa": {k: v for k, v in pools.dropped_sa.items() if v},
         "primitives": {p: {"drawn": by_prim.get(p, 0), "pool": sum(a.pool for a in allocations if a.primitive == p)} for p in PRIM_TYPES},
         "train": rows, "eval": {s: dict(v) for s, v in evals.items()},
     }
@@ -279,6 +319,13 @@ def mix_report(cfg: MixConfig, pools: Pools, allocations: list[Allocation]) -> d
 
 def report_markdown(report: dict) -> str:
     out = [f"# Mix `{report['name']}`", "", f"{report['total']} training records per epoch, max_len {report['max_len']}.", ""]
+    if not report.get("share_alike", True):
+        dropped = report.get("dropped_sa", {})
+        out += [
+            "**No CC BY-SA data in train and calib** (`share_alike: false`); test_in and test_ood keep it. "
+            + (f"Left out ({sum(dropped.values())} records): " + ", ".join(f"{k} {v}" for k, v in dropped.items()) if dropped else "Nothing to leave out."),
+            "",
+        ]
     out += ["| Primitive | Weight | Drawn | Pool | Repeat |", "|---|---|---|---|---|"]
     for p, v in report["primitives"].items():
         rep = v["drawn"] / v["pool"] if v["pool"] else 0.0

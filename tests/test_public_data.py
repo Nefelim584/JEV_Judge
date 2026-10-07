@@ -203,3 +203,64 @@ def test_social_iqa_labels_are_one_based():
 def test_unknown_dataset():
     with pytest.raises(ValueError, match="unknown dataset"):
         get_converter("nope")
+
+
+def _mcqa(i, n=4, target=0, split="train"):
+    from jevlite.data.unified import Record
+
+    return Record(id=f"m:{i}", source="m", split=split, state=f"question {i}", type="choice", prompt="p",
+                  candidates=[f"opt {i}-{k}" for k in range(n)], target=target)
+
+
+def test_borrow_distractors_keeps_gold_and_varies_k():
+    from jevlite.data.public.mcqa import BORROW_MAX, borrow_distractors
+
+    records = [_mcqa(i, target=i % 4) for i in range(200)]
+    out = borrow_distractors(records, "m", "train")
+    assert [r.id for r in out] == [r.id for r in records]
+    assert out == borrow_distractors(records, "m", "train")  # deterministic
+    added = [r.field("borrowed_distractors") for r in out]
+    assert 0.35 < sum(a > 0 for a in added) / len(added) < 0.65
+    assert set(added) <= set(range(BORROW_MAX + 1))
+    for before, after in zip(records, out):
+        assert after.candidates[after.target] == before.candidates[before.target]  # gold kept
+        assert len(after.candidates) == len(before.candidates) + after.field("borrowed_distractors")
+        assert len(set(after.candidates)) == len(after.candidates)
+        assert [c for c in after.candidates if c in before.candidates] == before.candidates  # own order kept
+        borrowed = [c for c in after.candidates if c not in before.candidates]
+        assert all(not c.startswith(f"opt {before.id[2:]}-") for c in borrowed)  # from other questions
+
+
+def test_borrow_distractors_respects_max_candidates_and_duplicates():
+    from jevlite.data.public.mcqa import borrow_distractors
+
+    full = _mcqa(0, n=MAX_CANDIDATES)
+    same = [_mcqa(1), _mcqa(1).model_copy(update={"id": "m:dup"})]  # the pool holds only their own options
+    out = borrow_distractors([full, *same], "m", "train", share=1.0)
+    assert len(out[0].candidates) == MAX_CANDIDATES
+    pool_other = set(full.candidates)
+    for r in out[1:]:
+        assert len(set(r.candidates)) == len(r.candidates)
+        assert set(r.candidates) - set(_mcqa(1).candidates) <= pool_other
+
+
+def test_mcqa_records_borrow_within_a_source_split(monkeypatch):
+    conv = get_converter("commonsense_qa")
+    rows = {
+        "train": [{"id": f"t{i}", "question": f"q{i}?", "choices": {"label": ["A", "B", "C"], "text": [f"a{i}", f"b{i}", f"c{i}"]}, "answerKey": "A"} for i in range(30)],
+        "validation": [{"id": f"v{i}", "question": f"v{i}?", "choices": {"label": ["A", "B", "C"], "text": [f"x{i}", f"y{i}", f"z{i}"]}, "answerKey": "B"} for i in range(30)],
+    }
+    monkeypatch.setattr(type(conv), "rows", lambda self, split: iter(rows[split]))
+    records = list(conv.records())
+    assert any(r.field("borrowed_distractors") for r in records)
+    for r in records:
+        own_split_letters = "abc" if r.id.split(":")[1] == "train" else "xyz"
+        assert all(c[0] in own_split_letters for c in r.candidates)  # never borrowed across source splits
+    assert len(list(conv.records(limit=5))) == 10
+
+
+def test_share_alike_flags():
+    sa = {n for n, c in CONVERTERS.items() if c.share_alike}
+    assert sa == {"boolq", "snli", "qnli", "vitaminc", "squad_v2", "clapnq", "arc", "dbpedia14"}
+    multi_nli = CONVERTERS["multi_nli"]
+    assert multi_nli.is_share_alike("fiction") and not multi_nli.is_share_alike("travel")

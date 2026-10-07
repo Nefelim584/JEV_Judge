@@ -106,3 +106,64 @@ def test_eval_caps_and_report(data):
     assert report["eval"]["test_in"] == {"b1": 30, "c1": 5}
     assert sum(r["drawn"] for r in report["train"]) == 100
     assert "| bool |" in report_markdown(report)
+
+
+def test_no_share_alike_drops_sa_from_train_and_calib_only(tmp_path):
+    rows = []
+    for i in range(40):
+        split = ["train", "calib", "test_in", "test_ood"][i % 4]
+        rows.append(Record(id=f"sa:{i}", source="sa", split=split, state="s", type="bool", prompt="p", target=1.0))
+    write_jsonl(tmp_path / "sa.jsonl", rows)
+    _source(tmp_path, "free", 50, "bool")
+    nli = [
+        Record(id=f"multi_nli:{i}", source="multi_nli", domain="fiction" if i % 2 else "travel", split="train" if i < 20 else "calib",
+               state="s", type="bool", prompt="p", target=0.0)
+        for i in range(30)
+    ]
+    write_jsonl(tmp_path / "multi_nli.jsonl", nli)
+    sources = {"sa": {"share_alike": True}, "free": {"share_alike": False}, "multi_nli": {}}  # multi_nli: from its converter
+
+    full = build_pools(_cfg(tmp_path, sources, weights={"bool": 1.0}))
+    nosa = build_pools(_cfg(tmp_path, sources, weights={"bool": 1.0}, share_alike=False))
+    assert ("sa", "bool") in full.train and ("sa", "bool") not in nosa.train
+    assert ("calib", "sa") not in nosa.eval and ("calib", "sa") in full.eval
+    for split in ("test_in", "test_ood"):  # the same test sets in both versions
+        assert nosa.eval[(split, "sa")] == full.eval[(split, "sa")]
+    kept = [json.loads(x)["domain"] for x in nosa.train[("multi_nli", "bool")] + nosa.eval[("calib", "multi_nli")]]
+    assert kept and set(kept) == {"travel"}  # only the fiction genre of MultiNLI is SA
+    assert len(nosa.train[("free", "bool")]) == len(full.train[("free", "bool")])
+    assert nosa.dropped_sa == {"sa": 20, "free": 0, "multi_nli": 15}
+    report = mix_report(_cfg(tmp_path, sources, weights={"bool": 1.0}, share_alike=False), nosa, [])
+    assert "No CC BY-SA data" in report_markdown(report)
+
+
+def test_unknown_source_needs_explicit_share_alike(tmp_path):
+    _source(tmp_path, "mystery", 10, "bool")
+    with pytest.raises(ValueError, match="share_alike"):
+        build_pools(_cfg(tmp_path, {"mystery": {}}, weights={"bool": 1.0}, share_alike=False))
+    build_pools(_cfg(tmp_path, {"mystery": {}}, weights={"bool": 1.0}))  # with SA allowed the flag is not needed
+
+
+def test_extends_merges_sources(tmp_path):
+    from jevlite.data.mix import load_mix_config
+
+    (tmp_path / "base.yaml").write_text(
+        "dir: d\ntotal: 10\nprimitive_weights: {bool: 1.0}\nsources:\n  a: {cap: 5}\n  b: {cap: 7, fit_only: true}\n"
+    )
+    (tmp_path / "child.yaml").write_text("extends: base.yaml\nshare_alike: false\nsources:\n  b: {cap: null}\n")
+    cfg = load_mix_config(tmp_path / "child.yaml")
+    assert cfg.name == "child" and cfg.share_alike is False and cfg.total == 10
+    specs = {s.name: s for s in cfg.sources}
+    assert specs["a"].cap == 5 and specs["b"].cap is None and specs["b"].fit_only is True
+
+
+def test_real_mix_configs_load():
+    from pathlib import Path
+
+    from jevlite.data.mix import load_mix_config
+
+    mixes = Path(__file__).resolve().parents[1] / "configs" / "mixes"
+    full, nosa = load_mix_config(mixes / "stage_a.yaml"), load_mix_config(mixes / "stage_a_nosa.yaml")
+    assert full.share_alike and not nosa.share_alike
+    assert {s.name for s in full.sources} == {s.name for s in nosa.sources}
+    assert {s.name: s.cap for s in nosa.sources}["wanli"] is None

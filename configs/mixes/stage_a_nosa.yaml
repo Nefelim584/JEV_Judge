@@ -1,0 +1,18 @@
+# Stage A without CC BY-SA data in train and calib (todo Phase 3, 2026-10-07).
+# Legal allows SA data; this second version is a precaution. test_in / test_ood are the same as in
+# stage_a, so both versions are compared on one test set.
+#
+# Left out of train and calib (Converter.share_alike): BoolQ, SNLI, QNLI, VitaminC, SQuAD 2.0, ClapNQ,
+# ARC, DBpedia-14 and the fiction genre of MultiNLI. TabFact and PAWS stay: their own licenses are not
+# SA, although their text comes from Wikipedia.
+#
+# Without SA, Bool keeps MultiNLI, WANLI, PAWS and TabFact only, so their caps are raised.
+
+extends: stage_a.yaml
+share_alike: false
+
+sources:
+  multi_nli: {cap: 150000}    # 40k in stage_a; fiction is left out (SA)
+  wanli: {cap: null}          # 20k in stage_a
+  paws: {cap: null}           # 10k in stage_a
+  tabfact: {cap: null}        # 20k in stage_a
