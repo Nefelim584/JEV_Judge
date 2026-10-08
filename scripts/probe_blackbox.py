@@ -17,7 +17,7 @@ from jevlite.probes import run_probes
 def main(argv: list[str] | None = None) -> dict:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--baseline", required=True, choices=BASELINES)
-    ap.add_argument("--data", required=True)
+    ap.add_argument("--data", required=True, nargs="+")
     ap.add_argument("--out", required=True)
     ap.add_argument("--model", default=None)
     ap.add_argument("--device", default=None)
@@ -29,7 +29,8 @@ def main(argv: list[str] | None = None) -> dict:
 
     splits = [s.strip() for s in args.splits.split(",")] if args.splits else None
     predictor = load_baseline(args.baseline, args.model, args.device)
-    result = run_probes(predictor, load_records(args.data, splits), args.n_items, args.n_perms, args.seed)
+    records = [r for path in args.data for r in load_records(path, splits)]
+    result = run_probes(predictor, records, args.n_items, args.n_perms, args.seed)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(result, indent=1))
     print(json.dumps(result, indent=1))

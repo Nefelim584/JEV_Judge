@@ -18,7 +18,7 @@ from jevlite.evaluation import evaluate, json_safe, parse_slices, to_markdown
 
 def main(argv: list[str] | None = None) -> dict:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--data", required=True, help="records, unified-format JSONL")
+    ap.add_argument("--data", required=True, nargs="+", help="records, unified-format JSONL (one or more files)")
     ap.add_argument("--pred", required=True, help="predictions JSONL")
     ap.add_argument("--out", required=True, help="output directory")
     ap.add_argument("--splits", default=None, help="comma-separated splits to keep, e.g. test_in,test_ood")
@@ -36,7 +36,7 @@ def main(argv: list[str] | None = None) -> dict:
     args = ap.parse_args(argv)
 
     splits = [s.strip() for s in args.splits.split(",")] if args.splits else None
-    records = load_records(args.data, splits)
+    records = [r for path in args.data for r in load_records(path, splits)]
     report = evaluate(
         records,
         load_predictions(args.pred),
@@ -46,7 +46,7 @@ def main(argv: list[str] | None = None) -> dict:
         min_n=args.min_n,
         allow_missing=args.allow_missing,
     )
-    report["inputs"] = {"data": str(args.data), "pred": str(args.pred), "splits": splits}
+    report["inputs"] = {"data": [str(d) for d in args.data], "pred": str(args.pred), "splits": splits}
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

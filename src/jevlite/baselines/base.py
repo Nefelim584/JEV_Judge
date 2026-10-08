@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
-from typing import Protocol, Sequence
+from dataclasses import dataclass
+from typing import Iterator, Protocol, Sequence
 
 import numpy as np
 
@@ -45,37 +46,72 @@ def entropy_confidence(p: np.ndarray) -> float:
     return float(1.0 - h / np.log(p.size))
 
 
-def predict_records(
-    predictor: Predictor, records: Sequence[Record], max_questions: int = 16, progress: bool = False
-) -> list[Prediction]:
-    """Run ``predictor`` over records, one call per state with up to ``max_questions`` questions.
+@dataclass(frozen=True)
+class Skipped:
+    """A record the predictor could not handle (e.g. Laya: options longer than its 192-token header)."""
+
+    id: str
+    error: str
+
+
+def _prediction(r: Record, p: np.ndarray, latency_ms: float) -> Prediction:
+    p = np.asarray(p, dtype=float)
+    conf = entropy_confidence(p)
+    if r.type == "bool":
+        return Prediction(id=r.id, prob=float(np.clip(p[0], 0.0, 1.0)), confidence=conf, latency_ms=latency_ms)
+    return Prediction(id=r.id, probs=(p / p.sum()).tolist(), confidence=conf, latency_ms=latency_ms)
+
+
+def _call(predictor: Predictor, chunk: Sequence[Record]) -> list[Prediction]:
+    questions = [r.to_question(qid=f"q{i}") for i, r in enumerate(chunk)]
+    t0 = time.perf_counter()
+    results = predictor.predict(chunk[0].state, questions)
+    per_q = (time.perf_counter() - t0) * 1000 / len(chunk)
+    return [_prediction(r, p, per_q) for r, p in zip(chunk, results, strict=True)]
+
+
+def iter_predictions(
+    predictor: Predictor, records: Sequence[Record], max_questions: int = 16, skip_errors: bool = False
+) -> Iterator[tuple[list[Prediction], list[Skipped]]]:
+    """Run ``predictor`` over records, one call per state with up to ``max_questions`` questions, and
+    yield ``(predictions, skipped)`` after every call, so callers can write results as they come.
 
     ``latency_ms`` of a record is the wall time of its call divided by the number of questions in it.
+    With ``skip_errors``, a failed call is retried question by question, and a question that still
+    fails is skipped instead of stopping the run.
     """
     by_state: dict[str, list[Record]] = defaultdict(list)
     for r in records:
         by_state[serialize_state(r.state)].append(r)
 
-    out: dict[str, Prediction] = {}
-    done = 0
     for group in by_state.values():
         for start in range(0, len(group), max_questions):
             chunk = group[start : start + max_questions]
-            questions = [r.to_question(qid=f"q{i}") for i, r in enumerate(chunk)]
-            t0 = time.perf_counter()
-            results = predictor.predict(chunk[0].state, questions)
-            per_q = (time.perf_counter() - t0) * 1000 / len(chunk)
-            for r, p in zip(chunk, results, strict=True):
-                p = np.asarray(p, dtype=float)
-                conf = entropy_confidence(p)
-                if r.type == "bool":
-                    out[r.id] = Prediction(id=r.id, prob=float(np.clip(p[0], 0.0, 1.0)), confidence=conf, latency_ms=per_q)
-                else:
-                    p = p / p.sum()
-                    out[r.id] = Prediction(id=r.id, probs=p.tolist(), confidence=conf, latency_ms=per_q)
-            done += len(chunk)
-            if progress:
-                print(f"\r  {predictor.name}: {done}/{len(records)}", end="", flush=True)
+            try:
+                yield _call(predictor, chunk), []
+                continue
+            except Exception as e:
+                if not skip_errors:
+                    raise
+                if len(chunk) == 1:
+                    yield [], [Skipped(chunk[0].id, f"{type(e).__name__}: {e}")]
+                    continue
+            for r in chunk:
+                try:
+                    yield _call(predictor, [r]), []
+                except Exception as e:
+                    yield [], [Skipped(r.id, f"{type(e).__name__}: {e}")]
+
+
+def predict_records(
+    predictor: Predictor, records: Sequence[Record], max_questions: int = 16, progress: bool = False
+) -> list[Prediction]:
+    """All predictions in record order (errors propagate)."""
+    out: dict[str, Prediction] = {}
+    for preds, _ in iter_predictions(predictor, records, max_questions):
+        out.update((p.id, p) for p in preds)
+        if progress:
+            print(f"\r  {predictor.name}: {len(out)}/{len(records)}", end="", flush=True)
     if progress:
         print()
     return [out[r.id] for r in records]

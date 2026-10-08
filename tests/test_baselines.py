@@ -122,3 +122,58 @@ def test_load_baseline_rejects_unknown():
 
     with pytest.raises(ValueError, match="unknown baseline"):
         load_baseline("gpt")
+
+
+class FailingPredictor(FixedPredictor):
+    """Fails on any call that contains a question whose prompt starts with 'bad'."""
+
+    def predict(self, state, questions):
+        if any(q.prompt.startswith("bad") for q in questions):
+            raise ValueError("options do not fit")
+        return super().predict(state, questions)
+
+
+def test_iter_predictions_skips_bad_questions_and_keeps_the_rest():
+    from jevlite.baselines.base import iter_predictions
+
+    records = [_rec(0, "A"), _rec(1, "A", prompt="bad one"), _rec(2, "A"), _rec(3, "B", prompt="bad two")]
+    preds, skipped = [], []
+    for p, s in iter_predictions(FailingPredictor(), records, skip_errors=True):
+        preds += p
+        skipped += s
+    assert sorted(p.id for p in preds) == ["r0", "r2"]
+    assert [s.id for s in skipped] == ["r1", "r3"] and "options do not fit" in skipped[0].error
+    with pytest.raises(ValueError):
+        list(iter_predictions(FailingPredictor(), records))  # without skip_errors errors propagate
+
+
+def test_predict_baseline_script_writes_incrementally_and_resumes(tmp_path, monkeypatch):
+    import importlib.util
+    import json
+    from pathlib import Path
+
+    from jevlite.data.unified import write_jsonl
+
+    spec = importlib.util.spec_from_file_location("predict_baseline", Path(__file__).parents[1] / "scripts" / "predict_baseline.py")
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+    calls = []
+
+    def fake_load(name, model, device, max_len):
+        predictor = FailingPredictor()
+        calls.append(predictor)
+        return predictor
+
+    monkeypatch.setattr(script, "load_baseline", fake_load)
+    a, b, out = tmp_path / "a.jsonl", tmp_path / "b.jsonl", tmp_path / "preds.jsonl"
+    write_jsonl(a, [_rec(0, "A"), _rec(1, "A", prompt="bad")])
+    write_jsonl(b, [_rec(2, "B"), _rec(3, "C")])
+
+    script.main(["--baseline", "nli", "--data", str(a), str(b), "--out", str(out), "--limit", "3"])
+    assert [json.loads(x)["id"] for x in out.read_text().splitlines()] == ["r0", "r2"]
+    assert [json.loads(x)["id"] for x in Path(f"{out}.skipped.jsonl").read_text().splitlines()] == ["r1"]
+
+    script.main(["--baseline", "nli", "--data", str(a), str(b), "--out", str(out), "--resume"])
+    assert sorted(json.loads(x)["id"] for x in out.read_text().splitlines()) == ["r0", "r2", "r3"]
+    assert sum(len(ids) for _, ids in calls[-1].calls) == 1  # only r3 was predicted again
+    assert Path(f"{out}.skipped.jsonl").exists()  # the earlier skip is kept
