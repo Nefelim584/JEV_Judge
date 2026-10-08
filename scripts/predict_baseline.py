@@ -40,6 +40,9 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--splits", default=None, help="comma-separated splits to keep")
     ap.add_argument("--limit", type=int, default=None, help="first N records only (smoke runs)")
     ap.add_argument("--max-len", type=int, default=512, help="NLI only: max tokens per premise + hypothesis")
+    ap.add_argument("--batch-size", type=int, default=None, help="NLI only: premise-hypothesis pairs per forward pass (default 16)")
+    ap.add_argument("--fp16", action="store_true", help="NLI on CUDA only: fp16 autocast, ~3-4x faster on T4")
+    ap.add_argument("--block", type=int, default=64, help="NLI: states per call, so that pairs of different records share batches")
     ap.add_argument("--resume", action="store_true", help="keep --out and skip the records already in it")
     args = ap.parse_args(argv)
 
@@ -58,11 +61,12 @@ def main(argv: list[str] | None = None) -> None:
         for path in (out, skipped_path):
             path.unlink(missing_ok=True)
 
-    predictor = load_baseline(args.baseline, args.model, args.device, args.max_len)
+    predictor = load_baseline(args.baseline, args.model, args.device, args.max_len, args.batch_size, args.fp16)
+    print(f"{predictor.name} on {getattr(predictor, 'device', '?')}", flush=True)
     n_pred = n_skip = 0
     start = time.perf_counter()
     with out.open("a") as f_pred, skipped_path.open("a") as f_skip:
-        for preds, skipped in iter_predictions(predictor, records, skip_errors=True):
+        for preds, skipped in iter_predictions(predictor, records, skip_errors=True, block=args.block):
             for p in preds:
                 f_pred.write(p.model_dump_json(exclude_none=True) + "\n")
             for s in skipped:

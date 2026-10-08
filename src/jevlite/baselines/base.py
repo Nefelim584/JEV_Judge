@@ -70,23 +70,47 @@ def _call(predictor: Predictor, chunk: Sequence[Record]) -> list[Prediction]:
     return [_prediction(r, p, per_q) for r, p in zip(chunk, results, strict=True)]
 
 
-def iter_predictions(
-    predictor: Predictor, records: Sequence[Record], max_questions: int = 16, skip_errors: bool = False
-) -> Iterator[tuple[list[Prediction], list[Skipped]]]:
-    """Run ``predictor`` over records, one call per state with up to ``max_questions`` questions, and
-    yield ``(predictions, skipped)`` after every call, so callers can write results as they come.
+def _call_many(predictor, chunks: Sequence[Sequence[Record]]) -> list[Prediction]:
+    calls = [(c[0].state, [r.to_question(qid=f"q{i}") for i, r in enumerate(c)]) for c in chunks]
+    t0 = time.perf_counter()
+    results = predictor.predict_many(calls)
+    per_q = (time.perf_counter() - t0) * 1000 / sum(len(c) for c in chunks)
+    return [_prediction(r, p, per_q) for c, res in zip(chunks, results, strict=True) for r, p in zip(c, res, strict=True)]
 
-    ``latency_ms`` of a record is the wall time of its call divided by the number of questions in it.
-    With ``skip_errors``, a failed call is retried question by question, and a question that still
-    fails is skipped instead of stopping the run.
-    """
+
+def _chunks(records: Sequence[Record], max_questions: int) -> list[list[Record]]:
+    """Records grouped by state, at most ``max_questions`` per group, in first-seen order."""
     by_state: dict[str, list[Record]] = defaultdict(list)
     for r in records:
         by_state[serialize_state(r.state)].append(r)
+    return [group[s : s + max_questions] for group in by_state.values() for s in range(0, len(group), max_questions)]
 
-    for group in by_state.values():
-        for start in range(0, len(group), max_questions):
-            chunk = group[start : start + max_questions]
+
+def iter_predictions(
+    predictor: Predictor, records: Sequence[Record], max_questions: int = 16, skip_errors: bool = False, block: int = 1
+) -> Iterator[tuple[list[Prediction], list[Skipped]]]:
+    """Run ``predictor`` over records, one call per state with up to ``max_questions`` questions, and
+    yield ``(predictions, skipped)`` as results come, so callers can write them incrementally.
+
+    ``block > 1`` with a predictor that has ``predict_many`` (NLI) sends ``block`` states per call, so
+    the model sees full batches. ``latency_ms`` of a record is the wall time of its call divided by the
+    number of questions in it (amortised over the block).
+
+    With ``skip_errors``, a failed call is retried state by state and then question by question, and a
+    question that still fails is skipped instead of stopping the run.
+    """
+    chunks = _chunks(records, max_questions)
+    step = block if hasattr(predictor, "predict_many") else 1
+    for b in range(0, len(chunks), step):
+        group = chunks[b : b + step]
+        if len(group) > 1:
+            try:
+                yield _call_many(predictor, group), []
+                continue
+            except Exception:
+                if not skip_errors:
+                    raise
+        for chunk in group:
             try:
                 yield _call(predictor, chunk), []
                 continue

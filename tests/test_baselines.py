@@ -159,7 +159,7 @@ def test_predict_baseline_script_writes_incrementally_and_resumes(tmp_path, monk
     spec.loader.exec_module(script)
     calls = []
 
-    def fake_load(name, model, device, max_len):
+    def fake_load(name, model, device, max_len, batch_size=None, fp16=False):
         predictor = FailingPredictor()
         calls.append(predictor)
         return predictor
@@ -177,3 +177,71 @@ def test_predict_baseline_script_writes_incrementally_and_resumes(tmp_path, monk
     assert sorted(json.loads(x)["id"] for x in out.read_text().splitlines()) == ["r0", "r2", "r3"]
     assert sum(len(ids) for _, ids in calls[-1].calls) == 1  # only r3 was predicted again
     assert Path(f"{out}.skipped.jsonl").exists()  # the earlier skip is kept
+
+
+def test_nli_fp16_is_cuda_only_and_baseline_flags_are_nli_only():
+    from jevlite.baselines import load_baseline
+
+    with pytest.raises(ValueError, match="CUDA only"):
+        NLIZeroShot(model=_FakeNLI(), tokenizer=_FakeTok(), device="cpu", fp16=True)
+    nli = NLIZeroShot(model=_FakeNLI(), tokenizer=_FakeTok(), device="cpu", batch_size=64)
+    assert nli.batch_size == 64 and not nli.fp16 and nli.name.endswith("+fp16") is False
+    with pytest.raises(ValueError, match="nli baseline only"):
+        load_baseline("laya", fp16=True)
+
+
+class _LenFakeNLI(_FakeNLI):
+    """Entailment logit depends on the whole pair, so batching mistakes change the output."""
+
+    def forward(self, input_ids, **_):
+        ent = input_ids.float().sum(-1) / 10 - 2
+        return type("O", (), {"logits": torch.stack([-ent, ent], -1)})()
+
+
+class _LenFakeTok:
+    def __call__(self, premises, hyps, **_):
+        n = max(len(p) + len(h) for p, h in zip(premises, hyps))
+        ids = torch.tensor([[1] * (len(p) + len(h)) + [0] * (n - len(p) - len(h)) for p, h in zip(premises, hyps)])
+
+        class Enc(dict):
+            def to(self, device):
+                return self
+
+        return Enc(input_ids=ids)
+
+
+def test_nli_predict_many_matches_predict_one_by_one():
+    nli = NLIZeroShot(model=_LenFakeNLI(), tokenizer=_LenFakeTok(), device="cpu", batch_size=3)
+    calls = [
+        ("short", [BoolQuestion(id="b", prompt="claim")]),
+        ("a much longer state text", [ChoiceQuestion(id="c", prompt="Which?", options=["x", "yy", "zzz"])]),
+        ("mid state", [BoolQuestion(id="b1", prompt="one"), ScoreQuestion(id="s", prompt="How?", levels=["lo", "mid", "high"])]),
+    ]
+    many = nli.predict_many(calls)
+    for (state, qs), got in zip(calls, many):
+        for a, b in zip(got, nli.predict(state, qs)):
+            assert a == pytest.approx(b)
+
+
+def test_iter_predictions_blocks_states_and_falls_back_on_errors():
+    from jevlite.baselines.base import iter_predictions
+
+    class Many(FailingPredictor):
+        def __init__(self):
+            super().__init__()
+            self.many_calls = 0
+
+        def predict_many(self, calls):
+            self.many_calls += 1
+            return [self.predict(s, qs) for s, qs in calls]
+
+    records = [_rec(i, f"S{i}") for i in range(10)] + [_rec(10, "S10", prompt="bad")]
+    predictor = Many()
+    out, skipped = [], []
+    for p, s in iter_predictions(predictor, records, skip_errors=True, block=4):
+        out += p
+        skipped += s
+    assert sorted(p.id for p in out) == sorted(f"r{i}" for i in range(10))
+    assert [s.id for s in skipped] == ["r10"]
+    assert predictor.many_calls == 3  # blocks of 4, 4 and 3 states; the last one fails and falls back
+    assert [p.id for p in predict_records(FixedPredictor(), records[:3])] == ["r0", "r1", "r2"]
