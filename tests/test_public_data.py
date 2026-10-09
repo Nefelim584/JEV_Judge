@@ -44,6 +44,10 @@ ROWS = {
     "summarize_from_feedback": ("train", {"idx": 0, "info": {"post": "Long post."}, "summaries": [{"text": "short a"}, {"text": "short b"}], "choice": 1}),
     "contract_nli": ("test", {"doc_id": 7, "text": "NDA text. No copies.", "spans": [[0, 9], [10, 20]], "hyp_id": "nda-1", "hypothesis": "Party shall not copy.", "choice": "NotMentioned", "evidence": []}),
     "banking77": ("test", {"idx": 0, "text": "where is my card", "category": "card_arrival", "label_names": ["card_arrival", "top_up_failed", "pin_blocked"]}),
+    "fever": ("train", {"id": 1, "claim": "Oslo is in Norway.", "label": "SUPPORTS", "pages": [{"title": "Oslo", "sentences": ["Oslo is a city.", "It is the capital of Norway."], "evidence": [1]}]}),
+    "hover": ("train", {"uid": "h1", "claim": "A and B are dogs.", "label": "SUPPORTED", "num_hops": 2, "pages": [{"title": "A", "text": "A is a dog."}, {"title": "B", "text": "B is a dog breed."}]}),
+    "feverous": ("train", {"id": 2, "claim": "X won in 1990.", "label": "NOT ENOUGH INFO", "pages": [{"title": "X", "sentences": ["X is a team.", "", "X played in 1990."], "evidence": [2]}]}),
+    "nq": ("train", {"id": 3, "question": "who wrote the book", "title": "The Book", "passage": "The Book is a novel by Ann Lee.", "answerable": True}),
 }
 
 
@@ -261,6 +265,6 @@ def test_mcqa_records_borrow_within_a_source_split(monkeypatch):
 
 def test_share_alike_flags():
     sa = {n for n, c in CONVERTERS.items() if c.share_alike}
-    assert sa == {"boolq", "snli", "qnli", "vitaminc", "squad_v2", "clapnq", "arc", "dbpedia14"}
+    assert sa == {"boolq", "snli", "qnli", "vitaminc", "squad_v2", "clapnq", "arc", "dbpedia14", "fever", "hover", "feverous", "nq"}
     multi_nli = CONVERTERS["multi_nli"]
     assert multi_nli.is_share_alike("fiction") and not multi_nli.is_share_alike("travel")

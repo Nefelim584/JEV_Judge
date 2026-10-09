@@ -1,24 +1,25 @@
 """Converters from public datasets to the unified format (TODO Phase 3, ``DATASETS.md`` section 0).
 
-Not converted yet: FEVER, HoVer and FEVEROUS (their evidence text needs Wikipedia dumps) and
-Natural Questions (the full release is ~45 GB; SQuAD 2.0 and ClapNQ cover answerability for now).
+FEVER, HoVer, FEVEROUS and Natural Questions download large Wikipedia dumps (~70 GB on disk at the
+peak, FEVEROUS alone 64 GB): ``all`` includes them, so convert them where the disk allows it
+(``notebooks/colab/05_convert_wiki_sources.ipynb``).
 """
 
 from __future__ import annotations
 
 from .base import Converter
 from .classification import BANKING77, CLINC150, MASSIVE, DBpedia14, GoEmotions
-from .factcheck import ContractNLI, TabFact, VitaminC
+from .factcheck import FEVER, FEVEROUS, ContractNLI, HoVer, TabFact, VitaminC
 from .mcqa import ARC, CommonsenseQA, CosmosQA, OpenBookQA, SocialIQa
 from .nli import PAWS, QNLI, SNLI, WANLI, MultiNLI
-from .qa import BoolQ, ClapNQ, SQuAD2
+from .qa import BoolQ, ClapNQ, NaturalQuestions, SQuAD2
 from .ratings import HelpSteer2, HelpSteer3, SummarizeFromFeedback
 
 CONVERTERS: dict[str, type[Converter]] = {
     c.name: c
     for c in (
         # Bool / Choice-3
-        VitaminC, TabFact, MultiNLI, WANLI, SNLI, QNLI, PAWS, BoolQ, SQuAD2, ClapNQ,
+        FEVER, VitaminC, HoVer, FEVEROUS, TabFact, MultiNLI, WANLI, SNLI, QNLI, PAWS, BoolQ, SQuAD2, NaturalQuestions, ClapNQ,
         # Choice
         ARC, OpenBookQA, CommonsenseQA, CosmosQA, SocialIQa, CLINC150, MASSIVE, DBpedia14, GoEmotions,
         # Score and preferences

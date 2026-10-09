@@ -3,7 +3,7 @@
 # stage_a, so both versions are compared on one test set.
 #
 # Left out of train and calib (Converter.share_alike): BoolQ, SNLI, QNLI, VitaminC, SQuAD 2.0, ClapNQ,
-# ARC, DBpedia-14 and the fiction genre of MultiNLI. TabFact and PAWS stay: their own licenses are not
+# ARC, DBpedia-14, FEVER, HoVer, FEVEROUS, Natural Questions and the fiction genre of MultiNLI. TabFact and PAWS stay: their own licenses are not
 # SA, although their text comes from Wikipedia.
 #
 # Without SA, Bool keeps MultiNLI, WANLI, PAWS and TabFact only, so their caps are raised.

@@ -18,7 +18,10 @@ eval_cap: 1000
 
 sources:
   # Bool / Choice-3 (NLI and fact checking: about half of each source is Bool, half Choice-3)
+  fever: {cap: 40000}
   vitaminc: {cap: 60000}
+  hover: {}                   # Bool only (2 classes); all ~18k
+  feverous: {cap: 30000}      # text-only evidence
   tabfact: {cap: 20000}       # Bool only
   multi_nli: {cap: 40000}     # low weight via the cap
   wanli: {cap: 20000}
@@ -26,6 +29,7 @@ sources:
   # Bool: yes/no QA, answerability, paraphrase
   boolq: {}
   squad_v2: {cap: 30000}
+  nq: {cap: 30000}
   clapnq: {}
   qnli: {cap: 15000}
   paws: {cap: 10000}
@@ -49,4 +53,3 @@ sources:
   contract_nli: {eval_cap: 3000}
   banking77: {eval_cap: 3000}
 
-# Not converted yet: FEVER (cap 40k), HoVer (18k), FEVEROUS (30k), Natural Questions (30k).
