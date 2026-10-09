@@ -216,6 +216,13 @@ def wiki_chunks(pages: Sequence[dict], *key) -> str | list[str]:
     return chunks[0] if len(chunks) == 1 else chunks
 
 
+def clean_abstract(text: str) -> str:
+    """HotpotQA abstracts lose pronunciations and leave ``Name ( ) is`` or ``Name (] ; born …)``."""
+    text = re.sub(r"\(\s*[\];,]*\s*\)", "", text)
+    text = re.sub(r"\(\s*(?:[\];,]\s*)+", "(", text)
+    return re.sub(r"\s+([,.;])", r"\1", re.sub(r"\s{2,}", " ", text)).strip()
+
+
 def _open_ro(path: Path) -> sqlite3.Connection:
     return sqlite3.connect(f"file:{path}?mode=ro", uri=True)
 
@@ -332,7 +339,8 @@ class FEVER(Converter):
         by_key: dict[str, list[str]] = {}
         with zipfile.ZipFile(fetch(f"{self.origin}wiki-pages.zip", "fever/wiki-pages.zip")) as z:
             for info in z.infolist():
-                if not info.filename.endswith(".jsonl"):
+                # The archive also carries macOS resource forks (``__MACOSX/…/._wiki-001.jsonl``).
+                if not info.filename.startswith("wiki-pages/") or not info.filename.endswith(".jsonl"):
                     continue
                 with z.open(info) as f:
                     for line in io.TextIOWrapper(f, encoding="utf-8"):
@@ -398,7 +406,7 @@ class HoVer(Converter):
                     hit = db.execute("SELECT text FROM documents WHERE id = ?", (unicodedata.normalize("NFD", title),)).fetchone()
                     if hit is None:
                         break
-                    pages.append({"title": title, "text": unicodedata.normalize("NFC", hit[0])})
+                    pages.append({"title": title, "text": clean_abstract(unicodedata.normalize("NFC", hit[0]))})
                 else:
                     yield {"uid": c["uid"], "claim": c["claim"], "label": c["label"], "num_hops": c["num_hops"], "pages": pages}
                     continue

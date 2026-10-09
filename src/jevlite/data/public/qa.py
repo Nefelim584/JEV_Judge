@@ -107,13 +107,34 @@ def _columns(x) -> dict:
 
 
 def join_tokens(tokens: list[str]) -> str:
-    """NQ's whitespace tokens back to text: no space before closing punctuation or after opening, and
-    PTB quotes (````…''``) as plain ones."""
-    text = " ".join('"' if t in ("``", "''") else t for t in tokens)
-    text = re.sub(r" ([,.;:!?%)\]}])", r"\1", text)
-    text = re.sub(r"([(\[{$]) ", r"\1", text)
-    text = re.sub(r" (n't|'s|'re|'ve|'m|'ll|'d)\b", r"\1", text)
-    return text.strip()
+    """NQ's whitespace tokens back to text.
+
+    No space before closing punctuation or after opening; PTB quotes (````…''``) and ``"`` attach to
+    the quoted words (opening and closing alternate); a lone ``'`` (``1950s '``) and ``-`` inside a
+    word (``code - named``) attach to their neighbours; ``--`` is an en dash.
+    """
+    out: list[str] = []
+    glue_next, in_quote = False, False
+    for t in tokens:
+        if t in ("``", "''", '"'):
+            in_quote = t == "``" or (t == '"' and not in_quote)
+            if in_quote:
+                if out and glue_next:
+                    out[-1] += '"'
+                else:
+                    out.append('"')
+                glue_next = True
+            else:
+                out[-1:] = [(out[-1] if out else "") + '"']
+            continue
+        if t == "--":
+            t = "–"
+        if out and (glue_next or t in ("'", "-") or re.match(r"^([,.;:!?%)\]}]|n't|'s|'re|'ve|'m|'ll|'d)$", t)):
+            out[-1] += t
+        else:
+            out.append(t)
+        glue_next = t in ("(", "[", "{", "$", "-")
+    return " ".join(out).strip()
 
 
 def nq_example(row: dict, *key, first_candidates: int = 10, min_words: int = 8) -> dict | None:

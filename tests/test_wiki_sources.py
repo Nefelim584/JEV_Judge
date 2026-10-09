@@ -2,6 +2,7 @@
 
 from jevlite.data.public import get_converter
 from jevlite.data.public.factcheck import (
+    clean_abstract,
     claim_grams,
     detokenize,
     fever_lines,
@@ -108,4 +109,11 @@ def test_nq_example_unanswerable_draws_a_paragraph():
 
 def test_join_tokens():
     assert join_tokens(["Paris", "(", "France", ")", "is", "big", ",", "is", "n't", "it", "?"]) == "Paris (France) is big, isn't it?"
-    assert join_tokens(["Kore", "(", "``", "the", "maiden", "''", ")"]) == 'Kore (" the maiden ")'
+    assert join_tokens(["Kore", "(", "``", "the", "maiden", "''", ")"]) == 'Kore ("the maiden")'
+    assert join_tokens(['"', "The", "Birds", '"', "was", "a", "1964", "single", ",", "1950s", "'", "hits"]) == '"The Birds" was a 1964 single, 1950s\' hits'
+    assert join_tokens(["Pokhran", "-", "II", ",", "code", "-", "named", "NewYork", "--", "Presbyterian"]) == "Pokhran-II, code-named NewYork – Presbyterian"
+
+
+def test_clean_abstract():
+    assert clean_abstract("Nicotiana ( ) is a genus .") == "Nicotiana is a genus."
+    assert clean_abstract("Rickson Gracie (] ; born November 21, 1958) is") == "Rickson Gracie (born November 21, 1958) is"
