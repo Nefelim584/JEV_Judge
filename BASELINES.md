@@ -67,6 +67,10 @@ The overall averages hide the main result: **the two baselines are good at diffe
 
 ## 3. Where each baseline wins
 
+![Accuracy by source, NLI vs Laya](docs/baselines/figures/accuracy_by_source.png)
+
+*Accuracy per source and primitive, sorted by the gap. Above the dashed line NLI wins (claim vs text, MCQA), below it Laya wins (classification, answerability, PAWS).* [Interactive version](docs/baselines/figures/accuracy_by_source.html)
+
 ### 3.1 Claim vs text (faithfulness-like): NLI wins clearly
 
 This is the core of the judge: does a claim follow from the retrieved text.
@@ -131,7 +135,16 @@ This is the core of the judge: does a claim follow from the retrieved text.
 
 ## 4. Calibration
 
+![Reliability diagrams](docs/baselines/figures/reliability.png)
+
+*Reliability per primitive: on the diagonal = calibrated. NLI's Bool curve is flat in the middle and steep at the ends, i.e. extreme probabilities; both models are overconfident on Score.* [Interactive version](docs/baselines/figures/reliability.html)
+
 **Laya's temperature buckets are miscalibrated at the edges.** Choice by number of options:
+
+![Accuracy vs confidence by number of options](docs/baselines/figures/calibration_by_k.png)
+
+*Choice records: accuracy (filled) vs mean top probability (hollow) per K bucket. Laya is overconfident at K = 2 (+0.33) and K ≥ 11 (+0.22); NLI is mildly underconfident at large K.* [Interactive version](docs/baselines/figures/calibration_by_k.html)
+
 
 | K | n | Laya accuracy | Laya mean confidence | Laya ECE | NLI ECE |
 |---|---|---|---|---|---|
@@ -155,6 +168,11 @@ and SNLI ECE 0.03.
 ## 5. Selective prediction (the cascade view)
 
 Answer the most confident share locally and escalate the rest. Accuracy on the most confident 80%:
+
+![Risk vs coverage](docs/baselines/figures/risk_coverage.png)
+
+*Error rate of the answered share as coverage grows. For Bool both curves are close to straight lines: confidence barely separates right from wrong answers.* [Interactive version](docs/baselines/figures/risk_coverage.html)
+
 
 | Primitive | NLI | Laya |
 |---|---|---|
@@ -290,3 +308,11 @@ HF_HUB_OFFLINE=1 uv run python scripts/probe_blackbox.py --baseline nli \
 
 The K-bucket table in section 4 and the source groups in section 3.1 were computed from
 `preds/*.jsonl` and the test files; they are not part of `eval.py`'s output.
+
+The figures (PNG + interactive HTML, tracked in `docs/baselines/figures/`) are rebuilt from the same inputs.
+The rebuilt `stage_a` test files (2026-10-09, with FEVER, HoVer and NQ) keep every earlier record
+unchanged, so they work as input; records without predictions (the new sources) are ignored:
+
+```
+uv run --extra reports python scripts/make_baselines_figures.py
+```
