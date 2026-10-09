@@ -21,7 +21,7 @@ sources:
   fever: {cap: 40000}
   vitaminc: {cap: 60000}
   hover: {}                   # Bool only (2 classes); all ~18k
-  feverous: {cap: 30000}      # text-only evidence
+  # feverous: {cap: 30000}    # postponed 2026-10-09: its page DB needs ~64 GB of disk at the peak (Kaggle has 55)
   tabfact: {cap: 20000}       # Bool only
   multi_nli: {cap: 40000}     # low weight via the cap
   wanli: {cap: 20000}

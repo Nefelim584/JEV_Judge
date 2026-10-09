@@ -1,8 +1,8 @@
 """Converters from public datasets to the unified format (TODO Phase 3, ``DATASETS.md`` section 0).
 
-FEVER, HoVer, FEVEROUS and Natural Questions download large Wikipedia dumps (~70 GB on disk at the
+FEVER, HoVer, FEVEROUS and Natural Questions download large Wikipedia dumps (~75 GB on disk at the
 peak, FEVEROUS alone 64 GB): ``all`` includes them, so convert them where the disk allows it
-(``notebooks/colab/05_convert_wiki_sources.ipynb``).
+(``notebooks/kaggle/05_convert_wiki_sources.ipynb``).
 """
 
 from __future__ import annotations

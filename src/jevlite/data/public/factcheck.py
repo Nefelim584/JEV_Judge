@@ -2,7 +2,7 @@
 
 FEVER, HoVer and FEVEROUS keep their evidence text in separate Wikipedia dumps (1.7 GB, 2.2 GB and
 10 GB zipped / 53 GB unzipped). ``rows`` downloads them into the raw dir and resolves the evidence, so
-convert them where the disk allows it (``notebooks/colab/05_convert_wiki_sources.ipynb``).
+convert them where the disk allows it (``notebooks/kaggle/05_convert_wiki_sources.ipynb``).
 """
 
 from __future__ import annotations

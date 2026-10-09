@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections import Counter
 from typing import Iterable, Iterator
@@ -158,6 +159,9 @@ class NaturalQuestions(Converter):
     Read from HF's parquet copy (``storage.googleapis.com`` refuses anonymous downloads now). The
     train split is 287 files / 55 GB; the first ``TRAIN_FILES`` (~1.1k questions each) cover the 30k
     cap of ``DATASETS.md`` after filtering. Dev (7 files, 1.3 GB) is read whole.
+
+    ``JEVLITE_DROP_RAW=1`` deletes every parquet file once it is read, so the peak disk use is one
+    file (~0.2 GB) instead of 7 GB (Kaggle).
     """
 
     name = "nq"
@@ -194,6 +198,8 @@ class NaturalQuestions(Converter):
                         continue
                     kept += 1
                     yield example
+            if os.environ.get("JEVLITE_DROP_RAW") == "1":
+                os.remove(path)
         logger.info("[nq] {}: {} kept, {} dropped (non-paragraph, ambiguous or short)", source_split, kept, dropped)
 
     def convert(self, row: dict, source_split: str) -> Iterable[Record]:
