@@ -90,6 +90,14 @@ This is the core of the judge: does a claim follow from the retrieved text.
 | HoVer (2–4 abstracts, multi-hop) | 1,000 | **0.707** | 0.568 |
 | All other Bool sources | 11,600 | 0.642 | **0.753** |
 
+![Claim vs text accuracy by group, HoVer by hops](docs/baselines/figures/faithfulness.png)
+
+*Bool accuracy per claim-vs-text group. NLI leads on every group, by 10–23 points. On HoVer NLI falls steadily with the number of hops (0.75 → 0.70 → 0.67), while Laya stays at 0.54–0.61, near chance. The bottom row, all other Bool tasks, is where Laya leads (section 3.2).* [Interactive version](docs/baselines/figures/faithfulness.html)
+
+![Recall per label](docs/baselines/figures/recall_by_label.png)
+
+*Recall of each label. "Supported / answerable" is easy for both; the negative side separates them. Laya catches about half of the negatives everywhere except FEVER, and on HoVer both miss most of them (NLI 46%, Laya 25%).* [Interactive version](docs/baselines/figures/recall_by_label.html)
+
 - On ContractNLI, a source neither model has seen, NLI leads by 23 points. This is the cleanest
   single-chunk faithfulness comparison we have.
 - NLI's 0.95 on MultiNLI, 0.83 on WANLI and **0.94 on FEVER** are inflated: all three are in its
@@ -151,6 +159,10 @@ This is the core of the judge: does a claim follow from the retrieved text.
   not through the model's own three classes.
 
 ### 3.4 Score: both are weak
+
+![Score accuracy per criterion](docs/baselines/figures/score_by_criterion.png)
+
+*Exact-level accuracy per Score criterion. Laya leads on the five HelpSteer2 attributes, NLI on HelpSteer3 preference; NLI is near zero on coherence (0.08).* [Interactive version](docs/baselines/figures/score_by_criterion.html)
 
 - Accuracy 0.24 (NLI) and 0.31 (Laya) on 5- and 7-level rubrics. NLI has no rank correlation at
   all (Spearman 0.005); Laya has 0.22.
@@ -245,6 +257,10 @@ Mean heuristic confidence when the state is replaced:
 | real | 0.449 | 0.412 |
 | shuffled words | 0.393 | 0.319 |
 | random characters | 0.361 | **0.519** |
+
+![Confidence on real vs nonsense states](docs/baselines/figures/nonsense_confidence.png)
+
+*Mean heuristic confidence when the state is replaced by shuffled words or random characters. NLI drops by 0.06–0.09, Laya's confidence rises by 0.11 on random characters.* [Interactive version](docs/baselines/figures/nonsense_confidence.html)
 
 **Neither model's confidence reliably drops on garbage.** Laya is *more* confident on random
 characters than on real text. A confidence signal that does not notice a meaningless input cannot
