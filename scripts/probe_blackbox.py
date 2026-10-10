@@ -1,6 +1,7 @@
 """Black-box checks of a baseline: option-order sensitivity, IIA, confidence on nonsense inputs.
 
     uv run python scripts/probe_blackbox.py --baseline laya --data data/test.jsonl --out reports/laya_probes.json
+    uv run python scripts/probe_blackbox.py --baseline jevlite --model data/runs/<RUN>/final --data data/test.jsonl --out …
 """
 
 from __future__ import annotations

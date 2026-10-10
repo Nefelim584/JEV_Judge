@@ -3,7 +3,8 @@
     uv run python scripts/predict_baseline.py --baseline nli  --data data/test.jsonl --out preds/nli.jsonl
     uv run python scripts/predict_baseline.py --baseline laya --data a.jsonl b.jsonl --out preds/laya.jsonl --resume
 
-``--model`` picks the NLI checkpoint, or the Laya checkpoint (base | multilingual | typed-decisions).
+``--model`` picks the NLI checkpoint, the Laya checkpoint (base | multilingual | typed-decisions), or for
+``--baseline jevlite`` the ``final/`` folder of one of our training runs.
 
 Predictions are appended to ``--out`` as they come, so an interrupted run loses at most one call;
 ``--resume`` skips the records already in ``--out``. A record the baseline cannot handle (e.g. Laya:
@@ -39,7 +40,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--device", default=None, help="cuda | mps | cpu (default: best available)")
     ap.add_argument("--splits", default=None, help="comma-separated splits to keep")
     ap.add_argument("--limit", type=int, default=None, help="first N records only (smoke runs)")
-    ap.add_argument("--max-len", type=int, default=512, help="NLI only: max tokens per premise + hypothesis")
+    ap.add_argument("--max-len", type=int, default=None, help="NLI: max tokens per premise + hypothesis (default 512); jevlite: per sequence (default: as saved)")
     ap.add_argument("--batch-size", type=int, default=None, help="NLI only: premise-hypothesis pairs per forward pass (default 16)")
     ap.add_argument("--fp16", action="store_true", help="NLI on CUDA only: fp16 autocast, ~3-4x faster on T4")
     ap.add_argument("--block", type=int, default=64, help="NLI: states per call, so that pairs of different records share batches")

@@ -245,3 +245,53 @@ def test_iter_predictions_blocks_states_and_falls_back_on_errors():
     assert [s.id for s in skipped] == ["r10"]
     assert predictor.many_calls == 3  # blocks of 4, 4 and 3 states; the last one fails and falls back
     assert [p.id for p in predict_records(FixedPredictor(), records[:3])] == ["r0", "r1", "r2"]
+
+
+def test_jevlite_baseline_matches_predictor_and_runs_probes(tmp_path, tokenizer):
+    from transformers import ModernBertConfig, ModernBertModel
+
+    from jevlite.baselines import load_baseline
+    from jevlite.checkpoint import save_final
+    from jevlite.config import load_config
+    from jevlite.encoding import text_encoder_from_config
+    from jevlite.inference import Predictor
+    from jevlite.model import JevLite
+    from jevlite.probes import run_probes
+
+    torch.manual_seed(0)
+    encoder = ModernBertModel(ModernBertConfig(
+        vocab_size=len(tokenizer), hidden_size=32, intermediate_size=64, num_hidden_layers=1,
+        num_attention_heads=2, pad_token_id=tokenizer.pad_token_id, reference_compile=False,
+    ))
+    model = JevLite(encoder, hidden=32, trunk_dim=8, dropout=0.0).eval()
+    cfg = load_config("apple_silicon")
+    cfg["model"] |= {"trunk_dim": 8, "dropout": 0.0}
+    cfg["encoding"]["max_len"] = 96
+    save_final(model, tokenizer, cfg, tmp_path / "run" / "final")
+
+    baseline = load_baseline("jevlite", str(tmp_path / "run" / "final"), device="cpu")
+    assert baseline.name == "jevlite:run"
+    records = [
+        _rec(0, "The parcel arrived late.", "choice", candidates=["late", "on time", "never"], target=0),
+        _rec(1, "The parcel arrived late.", "score", candidates=["low", "mid", "high"], target=2),
+        _rec(2, "The parcel arrived late.", "bool"),
+        _rec(3, "Refunds take five days.", "choice", candidates=["refund", "billing"], target=0),
+    ]
+    reference = Predictor(model, text_encoder_from_config(cfg, tokenizer)).predict_records(records)
+    for r, ref in zip(records, reference):
+        (p,) = baseline.predict(r.state, [r.to_question("q")])
+        expected = [ref.prob] if r.type == "bool" else ref.probs
+        assert np.allclose(p, expected, atol=1e-6)
+        if r.type != "bool":
+            assert abs(p.sum() - 1) < 1e-6
+
+    probes = run_probes(baseline, records, n_items=2, n_perms=2)
+    assert probes["predictor"] == "jevlite:run"
+    assert set(probes) >= {"order_sensitivity", "iia", "nonsense_confidence"}
+
+
+def test_jevlite_baseline_needs_a_model_folder():
+    from jevlite.baselines import load_baseline
+
+    with pytest.raises(ValueError, match="needs --model"):
+        load_baseline("jevlite")

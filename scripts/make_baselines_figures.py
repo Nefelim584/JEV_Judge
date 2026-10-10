@@ -1,11 +1,20 @@
-"""Figures for BASELINES.md (todo Phase 2): PNG + interactive plotly twin per chart, in docs/baselines/figures/.
+"""Figures for BASELINES.md (todo Phase 2) and for our runs against the baselines (todo Phase 6, Stage A
+evaluation): PNG + interactive plotly twin per chart, in <out>/figures/.
 
-    uv run python scripts/make_baselines_figures.py
+    uv run python scripts/make_baselines_figures.py                      # BASELINES.md, docs/baselines/
+    uv run python scripts/make_baselines_figures.py --out docs/stage_a \
+        --model jevlite data/runs/<RUN>/preds.jsonl data/runs/<RUN>/report/report.json [data/runs/<RUN>/probes.json]
 
 Inputs (git-ignored, produced by the Phase 2 runs; see BASELINES.md section 10):
 - data/baselines/reports/{nli,laya}/report.json  (scripts/eval.py)
 - data/baselines/preds/{nli,laya}.jsonl          (scripts/predict_baseline.py)
+- data/baselines/probes/{nli,laya}.json          (scripts/probe_blackbox.py)
 - data/mix/stage_a/test_{in,ood}.jsonl           (targets and number of options)
+- each ``--model NAME PREDS REPORT [PROBES]``: the same three files of an extra model (e.g. a training run).
+
+With extra models every chart shows all models (NLI blue, Laya orange, then the extras in slot order),
+the gaps are "first extra − best baseline", and the titles are neutral: the BASELINES.md titles state
+findings about the two baselines only. The nonsense-confidence chart needs probes for every model.
 
 Charts:
 1. reliability diagrams and 2. risk–coverage curves: the same charts as ``make_report.py compare``;
@@ -39,7 +48,7 @@ from jevlite.reports.style import (
     setup_matplotlib,
 )
 
-MODELS = ["nli", "laya"]  # slot order = colours: NLI blue, Laya orange (as in the compare report)
+BASELINES = ["nli", "laya"]  # slot order = colours: NLI blue, Laya orange (as in the compare report); extras follow
 K_BUCKETS = [("2", 2, 2), ("3–5", 3, 5), ("6–10", 6, 10), ("11+", 11, 10**6)]
 CLAIM_VS_TEXT = {"multi_nli", "snli", "wanli", "vitaminc", "contract_nli", "fever", "hover"}
 # (label, sources): the Bool sources of the per-label recall chart, positive class = target 1
@@ -50,16 +59,40 @@ RECALL_SOURCES = [
 NONSENSE_STATES = [("real", "real text"), ("shuffled_words", "shuffled words"), ("random_chars", "random characters")]
 
 
-def source_rows(reports: dict[str, dict]) -> list[dict]:
-    """Accuracy of both models per (source, primitive), sorted by NLI − Laya."""
+class Lineup:
+    """The models of a chart: the two baselines plus optional extras. Gaps compare the first extra with
+    the best baseline, or NLI with Laya when there are no extras (the BASELINES.md view)."""
+
+    def __init__(self, extras: list[str]):
+        self.extras = extras
+        self.models = BASELINES + extras
+
+    @property
+    def focus(self) -> str:
+        return self.extras[0] if self.extras else "nli"
+
+    @property
+    def gap_label(self) -> str:
+        return f"{self.focus} − best baseline" if self.extras else "NLI − Laya"
+
+    def gap(self, r: dict) -> float:
+        if self.extras:
+            return r[self.focus] - max(r[b] for b in BASELINES)
+        return r["nli"] - r["laya"]
+
+    def complete(self, rows: list[dict]) -> list[dict]:
+        return [r for r in rows if all(m in r for m in self.models)]
+
+
+def source_rows(reports: dict[str, dict], lineup: Lineup) -> list[dict]:
+    """Accuracy of every model per (source, primitive), sorted by the lineup's gap."""
     acc: dict[tuple[str, str], dict] = {}
     for model, report in reports.items():
         for row in report["rows"]:
             if set(row["slice"]) == {"source"}:
                 key = (row["slice"]["source"], row["type"])
                 acc.setdefault(key, {"source": key[0], "type": key[1], "n": row["n"]})[model] = row["accuracy"]
-    rows = [r for r in acc.values() if all(m in r for m in MODELS)]
-    return sorted(rows, key=lambda r: r["nli"] - r["laya"])
+    return sorted(lineup.complete(list(acc.values())), key=lineup.gap)
 
 
 def k_bucket_rows(preds: dict[str, Path], tests: list[Path]) -> list[dict]:
@@ -101,50 +134,54 @@ def _dumbbell_axes(ax, labels: list[str]):
     ax.tick_params(axis="y", length=0)
 
 
-def source_chart(rows: list[dict], colors: dict[str, str], out: Path) -> str:
+def source_chart(rows: list[dict], lineup: Lineup, colors: dict[str, str], out: Path) -> str:
     plt = setup_matplotlib()
     import plotly.graph_objects as go
 
     labels = [f"{r['source']} · {r['type']}" for r in rows]
     fig, ax = plt.subplots(figsize=(7.4, 0.32 * len(rows) + 1.6))
     for i, r in enumerate(rows):
-        ax.plot([r["nli"], r["laya"]], [i, i], color=AXIS, linewidth=2, zorder=1)
-    for model in MODELS:
+        ax.plot(_span(r, lineup), [i, i], color=AXIS, linewidth=2, zorder=1)
+    for model in lineup.models:
         ax.scatter([r[model] for r in rows], range(len(rows)), s=64, color=colors[model], edgecolor=SURFACE, linewidth=2, zorder=2, label=model)
     _dumbbell_axes(ax, labels)
-    ax.axhline(sum(r["nli"] < r["laya"] for r in rows) - 0.5, color=GRID, linewidth=1, linestyle="--", zorder=0)
+    ax.axhline(sum(lineup.gap(r) < 0 for r in rows) - 0.5, color=GRID, linewidth=1, linestyle="--", zorder=0)
     ax.set_xlabel("accuracy")
-    ax.set_title("Accuracy by source: NLI wins above the dashed line, Laya below", loc="left")
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.8 / (0.32 * len(rows) + 1.6)), ncol=2)
+    if lineup.extras:
+        ax.set_title(f"Accuracy by source: {lineup.focus} beats both baselines above the dashed line", loc="left")
+    else:
+        ax.set_title("Accuracy by source: NLI wins above the dashed line, Laya below", loc="left")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.8 / (0.32 * len(rows) + 1.6)), ncol=len(lineup.models))
 
     hfig = go.Figure()
     hfig.add_trace(go.Scatter(
-        x=[v for r in rows for v in (r["nli"], r["laya"], None)], y=[v for lab in labels for v in (lab, lab, None)],
+        x=[v for r in rows for v in (*_span(r, lineup), None)], y=[v for lab in labels for v in (lab, lab, None)],
         mode="lines", line={"color": AXIS, "width": 2}, hoverinfo="skip", showlegend=False,
     ))
-    for model in MODELS:
+    for model in lineup.models:
         hfig.add_trace(go.Scatter(
             x=[r[model] for r in rows], y=labels, mode="markers", name=model,
             marker={"size": 11, "color": colors[model], "line": {"color": SURFACE, "width": 2}},
-            customdata=[[r["n"], r["nli"] - r["laya"]] for r in rows],
-            hovertemplate=f"<b>%{{y}}</b><br>{model}: %{{x:.3f}}<br>NLI − Laya: %{{customdata[1]:+.3f}}<br>n = %{{customdata[0]:,}}<extra></extra>",
+            customdata=[[r["n"], lineup.gap(r)] for r in rows],
+            hovertemplate=f"<b>%{{y}}</b><br>{model}: %{{x:.3f}}<br>{lineup.gap_label}: %{{customdata[1]:+.3f}}<br>n = %{{customdata[0]:,}}<extra></extra>",
         ))
-    hfig.update_layout(**plotly_layout("Accuracy by source, NLI vs Laya", height=26 * len(rows) + 160))
+    hfig.update_layout(**plotly_layout(f"Accuracy by source, {' vs '.join(lineup.models)}", height=26 * len(rows) + 160))
     hfig.update_xaxes(**plotly_axis(range=[0, 1], title="accuracy"))
     hfig.update_yaxes(**plotly_axis(showgrid=False))
     png, html = save_figure(fig, out, "accuracy_by_source", hfig)
-    return md_figure("Accuracy by source, NLI vs Laya", png, html)
+    return md_figure(f"Accuracy by source, {' vs '.join(lineup.models)}", png, html)
 
 
-def k_chart(rows: list[dict], colors: dict[str, str], out: Path) -> str:
+def k_chart(rows: list[dict], lineup: Lineup, colors: dict[str, str], out: Path) -> str:
     plt = setup_matplotlib()
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
 
     names = [b for b, _, _ in K_BUCKETS]
-    fig, axes = plt.subplots(1, 2, figsize=(9.6, 3.0), sharey=True)
-    hfig = make_subplots(rows=1, cols=2, shared_yaxes=True, subplot_titles=MODELS, horizontal_spacing=0.08)
-    for col, (ax, model) in enumerate(zip(axes, MODELS), start=1):
+    n = len(lineup.models)
+    fig, axes = plt.subplots(1, n, figsize=(4.8 * n, 3.0), sharey=True)
+    hfig = make_subplots(rows=1, cols=n, shared_yaxes=True, subplot_titles=lineup.models, horizontal_spacing=0.08)
+    for col, (ax, model) in enumerate(zip(axes, lineup.models), start=1):
         by_k = {r["k"]: r for r in rows if r["model"] == model}
         ks = [k for k in names if k in by_k]
         labels = [f"K = {k}  (n = {by_k[k]['n']:,})" for k in ks]
@@ -185,8 +222,8 @@ def k_chart(rows: list[dict], colors: dict[str, str], out: Path) -> str:
     return md_figure("Accuracy vs confidence by K", png, html)
 
 
-def bool_records(preds: dict[str, Path], tests: list[Path]) -> list[dict]:
-    """Bool records joined with both models' P(true): source, target, hops, and ``{model: prob}``."""
+def bool_records(preds: dict[str, Path], tests: list[Path], lineup: Lineup) -> list[dict]:
+    """Bool records joined with every model's P(true): source, target, hops, and ``{model: prob}``."""
     recs: dict[str, dict] = {}
     for path in tests:
         with path.open() as f:
@@ -200,12 +237,13 @@ def bool_records(preds: dict[str, Path], tests: list[Path]) -> list[dict]:
                 p = json.loads(line)
                 if p["id"] in recs and p.get("prob") is not None:
                     recs[p["id"]][model] = p["prob"]
-    return [r for r in recs.values() if all(m in r for m in MODELS)]
+    return lineup.complete(list(recs.values()))
 
 
 def _accuracy_row(label: str, recs: list[dict]) -> dict:
+    """Accuracy at threshold 0.5 of every model present in the records."""
     row = {"label": label, "n": len(recs)}
-    for model in MODELS:
+    for model in [k for k in recs[0] if k not in ("source", "target", "hops")]:
         row[model] = sum((r[model] >= 0.5) == (r["target"] >= 0.5) for r in recs) / len(recs)
     return row
 
@@ -238,33 +276,39 @@ def recall_rows(recs: list[dict]) -> dict[str, list[dict]]:
     return out
 
 
-def score_rows(reports: dict[str, dict]) -> list[dict]:
-    """Score accuracy per criterion (HelpSteer2 attributes, HelpSteer3 preference), sorted by Laya."""
+def score_rows(reports: dict[str, dict], lineup: Lineup) -> list[dict]:
+    """Score accuracy per criterion (HelpSteer2 attributes, HelpSteer3 preference), sorted by Laya, or
+    by the first extra model."""
     acc: dict[str, dict] = {}
     for model, report in reports.items():
         for row in report["rows"]:
             if set(row["slice"]) == {"criterion"} and row["type"] == "score":
                 name = row["slice"]["criterion"]
                 acc.setdefault(name, {"label": name, "n": row["n"]})[model] = row["accuracy"]
-    rows = [r for r in acc.values() if all(m in r for m in MODELS)]
-    return sorted(rows, key=lambda r: r["laya"])
+    return sorted(lineup.complete(list(acc.values())), key=lambda r: r[lineup.extras[0] if lineup.extras else "laya"])
 
 
-def nonsense_rows(probes: dict[str, dict]) -> list[dict]:
+def nonsense_rows(probes: dict[str, dict], lineup: Lineup) -> list[dict]:
     rows = []
     for key, label in NONSENSE_STATES:
-        row = {"label": label, "n": probes[MODELS[0]]["nonsense_confidence"]["n"]}
-        for model in MODELS:
+        row = {"label": label, "n": probes[lineup.models[0]]["nonsense_confidence"]["n"]}
+        for model in lineup.models:
             row[model] = probes[model]["nonsense_confidence"][key]
         rows.append(row)
     return rows[::-1]  # matplotlib draws bottom-up: "real" ends on top
 
 
+def _span(r: dict, lineup: Lineup) -> tuple[float, float]:
+    values = [r[m] for m in lineup.models]
+    return min(values), max(values)
+
+
 def dumbbell_chart(
-    panels: list[tuple[str | None, list[dict]]], colors: dict[str, str], out: Path, name: str,
+    panels: list[tuple[str | None, list[dict]]], lineup: Lineup, colors: dict[str, str], out: Path, name: str,
     title: str, subtitle: str, xlabel: str = "accuracy", xlim: tuple[float, float] = (0, 1),
 ) -> str:
-    """NLI vs Laya dot pairs per row; one or more panels side by side with shared row labels."""
+    """One dot per model per row, joined by a line over their range; one or more panels side by side
+    with shared row labels."""
     plt = setup_matplotlib()
     import plotly.graph_objects as go
     from matplotlib.lines import Line2D
@@ -279,8 +323,8 @@ def dumbbell_chart(
         # n differs per panel, and shared row labels show only one: multi-panel charts keep n in the hover
         labels = [r["label"] if len(panels) > 1 else f"{r['label']}  (n = {r['n']:,})" for r in rows]
         for i, r in enumerate(rows):
-            ax.plot([r["nli"], r["laya"]], [i, i], color=AXIS, linewidth=2, zorder=1)
-        for model in MODELS:
+            ax.plot(_span(r, lineup), [i, i], color=AXIS, linewidth=2, zorder=1)
+        for model in lineup.models:
             ax.scatter([r[model] for r in rows], range(len(rows)), s=64, color=colors[model], edgecolor=SURFACE, linewidth=2, zorder=2)
         _dumbbell_axes(ax, labels)
         ax.set_xlim(*xlim)
@@ -290,15 +334,15 @@ def dumbbell_chart(
 
         hlabels = [r["label"] for r in rows]
         hfig.add_trace(go.Scatter(
-            x=[v for r in rows for v in (r["nli"], r["laya"], None)], y=[v for lab in hlabels for v in (lab, lab, None)],
+            x=[v for r in rows for v in (*_span(r, lineup), None)], y=[v for lab in hlabels for v in (lab, lab, None)],
             mode="lines", line={"color": AXIS, "width": 2}, hoverinfo="skip", showlegend=False,
         ), row=1, col=col)
-        for model in MODELS:
+        for model in lineup.models:
             hfig.add_trace(go.Scatter(
                 x=[r[model] for r in rows], y=hlabels, mode="markers", name=model, showlegend=col == 1,
                 marker={"size": 11, "color": colors[model], "line": {"color": SURFACE, "width": 2}},
-                customdata=[[r["n"], r["nli"] - r["laya"]] for r in rows],
-                hovertemplate=f"<b>%{{y}}</b><br>{model}: %{{x:.3f}}<br>NLI − Laya: %{{customdata[1]:+.3f}}<br>n = %{{customdata[0]:,}}<extra></extra>",
+                customdata=[[r["n"], lineup.gap(r)] for r in rows],
+                hovertemplate=f"<b>%{{y}}</b><br>{model}: %{{x:.3f}}<br>{lineup.gap_label}: %{{customdata[1]:+.3f}}<br>n = %{{customdata[0]:,}}<extra></extra>",
             ), row=1, col=col)
 
     # fixed margins in inches, so title, subtitle and legend sit the same way at any number of rows
@@ -306,8 +350,8 @@ def dumbbell_chart(
     fig.subplots_adjust(top=1 - top / height, bottom=0.6 / height)
     fig.suptitle(title, x=0.01, y=1 - 0.05 / height, va="top", ha="left", fontweight="bold", fontsize=11, color=TEXT)
     fig.text(0.01, 1 - 0.3 / height, subtitle, va="top", ha="left", fontsize=9, color=TEXT_SECONDARY)
-    handles = [Line2D([], [], marker="o", linestyle="", markersize=8, color=colors[m], label=m) for m in MODELS]
-    fig.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, 0.0), ncol=len(MODELS))
+    handles = [Line2D([], [], marker="o", linestyle="", markersize=8, color=colors[m], label=m) for m in lineup.models]
+    fig.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, 0.0), ncol=len(lineup.models))
     hfig.update_layout(**plotly_layout(title, height=30 * n_rows + 170))
     hfig.update_xaxes(**plotly_axis(range=list(xlim), title=xlabel))
     hfig.update_yaxes(**plotly_axis(showgrid=False, autorange="reversed"))
@@ -320,46 +364,81 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--baselines", default="data/baselines")
     ap.add_argument("--tests", nargs="+", default=["data/mix/stage_a/test_in.jsonl", "data/mix/stage_a/test_ood.jsonl"])
     ap.add_argument("--out", default="docs/baselines")
+    ap.add_argument("--model", nargs="+", action="append", default=[], metavar="NAME PREDS REPORT [PROBES]",
+                    help="an extra model to draw next to the baselines; repeat for several")
     args = ap.parse_args(argv)
 
     base, out = Path(args.baselines), Path(args.out)
-    colors = series_colors(MODELS)
-    runs = load_runs([parse_run(f"{m}={base / 'reports' / m / 'report.json'}") for m in MODELS])
+    preds = {m: base / "preds" / f"{m}.jsonl" for m in BASELINES}
+    report_paths = {m: base / "reports" / m / "report.json" for m in BASELINES}
+    probe_paths = {m: base / "probes" / f"{m}.json" for m in BASELINES}
+    for spec in args.model:
+        if len(spec) not in (3, 4):
+            ap.error(f"--model takes NAME PREDS REPORT [PROBES], got {spec}")
+        name = spec[0]
+        if name in preds:
+            ap.error(f"model name {name!r} is taken")
+        preds[name], report_paths[name] = Path(spec[1]), Path(spec[2])
+        if len(spec) == 4:
+            probe_paths[name] = Path(spec[3])
+    lineup = Lineup([spec[0] for spec in args.model])
+
+    colors = series_colors(lineup.models)
+    runs = load_runs([parse_run(f"{m}={report_paths[m]}") for m in lineup.models])
     reports = {run.name: run.reports[0] for run in runs}
     prims = ["choice", "score", "bool"]
     tests = [Path(t) for t in args.tests]
-    preds = {m: base / "preds" / f"{m}.jsonl" for m in MODELS}
-    recs = bool_records(preds, tests)
+    recs = bool_records(preds, tests, lineup)
     recall = recall_rows(recs)
-    probes = {m: json.loads((base / "probes" / f"{m}.json").read_text()) for m in MODELS}
+    # with extra models the titles stay neutral: the findings in the BASELINES.md titles are about NLI and Laya only
+    titles = {
+        "faithfulness": (
+            "Claim vs text (Bool): NLI leads on every group, both drop on multi-hop HoVer",
+            "Claim vs text (Bool) accuracy by group, HoVer by number of hops",
+        ),
+        "recall_by_label": (
+            "Recall per label: Laya misses the negative class, and on HoVer both do",
+            "Recall per label on fact-checking and answerability sources",
+        ),
+        "score_by_criterion": (
+            "Score accuracy per criterion: both weak, Laya ahead except on preference",
+            "Score accuracy per criterion",
+        ),
+        "nonsense_confidence": (
+            "Confidence barely reacts to nonsense states; Laya's rises on random characters",
+            "Confidence on real vs nonsense states",
+        ),
+    }
+    title = {k: v[1] if lineup.extras else v[0] for k, v in titles.items()}
 
     snippets = {
         "reliability": reliability_chart(runs, prims, colors, out),
         "risk_coverage": risk_coverage_chart(runs, prims, colors, out),
-        "accuracy_by_source": source_chart(source_rows(reports), colors, out),
-        "calibration_by_k": k_chart(k_bucket_rows(preds, tests), colors, out),
+        "accuracy_by_source": source_chart(source_rows(reports, lineup), lineup, colors, out),
+        "calibration_by_k": k_chart(k_bucket_rows(preds, tests), lineup, colors, out),
         "faithfulness": dumbbell_chart(
-            [(None, faithfulness_rows(recs)[::-1])], colors, out, "faithfulness",
-            "Claim vs text (Bool): NLI leads on every group, both drop on multi-hop HoVer",
+            [(None, faithfulness_rows(recs)[::-1])], lineup, colors, out, "faithfulness", title["faithfulness"],
             "accuracy per group; HoVer claims need 2–4 chunks at once; bottom row (non-claim Bool tasks) for reference",
         ),
         "recall_by_label": dumbbell_chart(
             [("supported / answerable", recall["positive"][::-1]), ("not supported / unanswerable", recall["negative"][::-1])],
-            colors, out, "recall_by_label",
-            "Recall per label: Laya misses the negative class, and on HoVer both do",
+            lineup, colors, out, "recall_by_label", title["recall_by_label"],
             "share of records of each label answered correctly (threshold 0.5)", xlabel="recall",
         ),
         "score_by_criterion": dumbbell_chart(
-            [(None, score_rows(reports))], colors, out, "score_by_criterion",
-            "Score accuracy per criterion: both weak, Laya ahead except on preference",
+            [(None, score_rows(reports, lineup))], lineup, colors, out, "score_by_criterion", title["score_by_criterion"],
             "exact-level accuracy on 5- and 7-level rubrics (HelpSteer2 attributes, HelpSteer3 preference)",
         ),
-        "nonsense_confidence": dumbbell_chart(
-            [(None, nonsense_rows(probes))], colors, out, "nonsense_confidence",
-            "Confidence barely reacts to nonsense states; Laya's rises on random characters",
-            "mean heuristic confidence (1 − H(p)/log K), 200 test_in items per state", xlabel="mean confidence",
-        ),
     }
+    missing = [m for m in lineup.models if not probe_paths.get(m) or not probe_paths[m].exists()]
+    if missing:
+        print(f"nonsense_confidence skipped: no probes for {', '.join(missing)} (scripts/probe_blackbox.py)")
+    else:
+        probes = {m: json.loads(probe_paths[m].read_text()) for m in lineup.models}
+        snippets["nonsense_confidence"] = dumbbell_chart(
+            [(None, nonsense_rows(probes, lineup))], lineup, colors, out, "nonsense_confidence", title["nonsense_confidence"],
+            "mean heuristic confidence (1 − H(p)/log K), 200 test_in items per state", xlabel="mean confidence",
+        )
     for name, snippet in snippets.items():
         print(f"--- {name}\n{snippet}")
 
