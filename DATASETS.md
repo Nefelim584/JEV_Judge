@@ -149,6 +149,35 @@ Consequences for the todo plan (Phase 3 named ANLI, RACE and review ratings):
 4. **Hidden test labels:** GLUE QNLI, SciFact, the FEVER and FEVEROUS shared tasks, and the TabFact challenge set. Use the dev splits as test.
 5. **Source text** (CNN/DM, Reddit, MS MARCO, Yelp) has its own copyright, separate from the label license.
 6. **Size:** section 1 alone is well above the ~200k target of Phase 3. The sampling mix caps the large NLI sets.
+7. **ClapNQ answerability is solvable from the passage alone** (found 2026-10-10 on `stage_a-full-s42`; details below). Kept as is in Stage A, fixed for Stage B.
+
+### 5.1 ClapNQ: the passage gives the label away
+
+**What we saw.** `stage_a-full-s42` scored **1.000 on all 600 ClapNQ test records** (`test_in` 278, `test_ood` 322, both classes), against 0.907 on Natural Questions and 0.883 on SQuAD 2.0. The zero-shot baselines got 0.618 (NLI) and 0.692 (Laya). A perfect score on a hard task is a data signal, not a skill.
+
+**How we checked it** (the final model, 100 test records per cell, mean P(answerable); scripts were ad hoc, the method is reproducible with `baselines.load_baseline("jevlite", …)`):
+
+| ClapNQ | passage of an answerable record | passage of an unanswerable record |
+|---|---|---|
+| answerable question | 0.978 (other record's passage) | 0.002 |
+| unanswerable question | 0.948 | 0.002 (other record's passage) |
+
+- The label follows the **passage**, not the question: an unanswerable question with a passage taken from an answerable record is called answerable 95% of the time, and an answerable question with a mismatched answerable passage 98%.
+- The model does read the state: with the state "No text." it gives 0.01 for both kinds of question.
+- **Natural Questions and SQuAD 2.0 are clean**: with any mismatched passage, from either class, P(answerable) is 0.01–0.04. The problem is specific to ClapNQ.
+- Not a train/test leak: only 5% of the ClapNQ test passages occur in train, and accuracy is 1.000 on the other 95% as well. Not an obvious formatting difference either: title line, tokenisation spaces, length (median 190 vs 210 tokens) and question wording are alike; passages of unanswerable records end mid-sentence more often (34–39% vs 8–15%, depending on the split), which alone does not explain 1.000.
+
+**Why it happened.** ClapNQ builds its two classes with different passage selection: an answerable record pairs the question with the gold passage that holds the answer, an unanswerable record pairs it with a passage from a page where no answer was found. Our converter (`data/public/qa.py`, `ClapNQ`) used both files as they are, so **no passage ever appears with both labels**, and "which file did this passage come from" is a learnable feature. What exactly in the passages separates the files is not established (likely the kind of paragraph that gets selected in each case); the swap test shows that it is enough. SQuAD 2.0 does not have this problem because its unanswerable questions were written against the same paragraphs as the answerable ones. Our NQ conversion asks whether a paragraph of the question's own page answers it; it passes the swap test, but whether its two classes share a paragraph pool was not checked separately.
+
+**What it affects.**
+- ClapNQ numbers of jev-lite (1.000) are **not evidence of answerability skill**; exclude ClapNQ from headline numbers and from the answerability average. The zero-shot baselines did not learn the shortcut, so their ClapNQ numbers stay meaningful.
+- Little else: ClapNQ is 1.7% of the Bool training mix (2.5k of 150k per epoch); NQ and SQuAD 2.0 are not affected.
+- The risk for the judge is the pattern, not this set: any training set where positives and negatives come from different passage pools teaches "what kind of text is this" instead of "does this text answer the question". The synthetic data of Phase 4 must avoid it (todo Phase 4).
+
+**Decision (2026-10-10).** Keep Stage A as trained (`stage_a`, and `stage_a_nosa` with the same recipe, so the two stay comparable); a retrain costs ~10 GPU hours of the Kaggle quota for a 0.8% share of the data. **Fix for Stage B:**
+- build ClapNQ answerability from the answerable file only: positive = (question, its gold passage); negative = (another question, the same passage), with the other question taken from a different Wikipedia page so it is not answered by accident;
+- drop the unanswerable file from training, or keep it only in a diagnostic test set marked as such;
+- rebuild the ClapNQ test records the same way, and add the 2×2 swap test above to the Phase 8 evaluation for every answerability source.
 
 ## 6. RAG / hallucination / relevance group
 

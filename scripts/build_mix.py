@@ -1,6 +1,7 @@
 """Build a training mix from converted datasets (``configs/mixes/*.yaml``).
 
     uv run python scripts/build_mix.py --config configs/mixes/stage_a.yaml --out data/mix/stage_a --epochs 2
+    uv run python scripts/build_mix.py --config configs/mixes/<with run_repeat>.yaml --out … --epochs 2 --batch-size 16
 
 Writes ``train.e{N}.jsonl`` per epoch (shuffled; subsampled pools draw a fresh subset each epoch),
 ``calib.jsonl``, ``test_in.jsonl``, ``test_ood.jsonl``, and ``mix_report.json`` / ``mix_report.md``
@@ -13,7 +14,9 @@ import argparse
 import json
 from pathlib import Path
 
-from jevlite.data.mix import EVAL_SPLITS, allocate, build_pools, epoch_lines, eval_lines, load_mix_config, mix_report, report_markdown
+from jevlite.data.mix import (
+    EVAL_SPLITS, allocate, build_pools, epoch_lines, eval_lines, load_mix_config, mix_report, report_markdown, suggest_loss_weights,
+)
 
 
 def _write(path: Path, lines: list[str]) -> None:
@@ -28,6 +31,10 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--out", required=True)
     ap.add_argument("--epochs", type=int, default=1)
     ap.add_argument("--dir", default=None, help="override the config's data dir")
+    ap.add_argument("--batch-size", type=int, default=None,
+                    help="with run_repeat: per-device micro-batch of training (train.per_device_batch_size); "
+                         "the report then suggests loss.weights that keep each primitive's gradient share")
+    ap.add_argument("--train-seed", type=int, default=42, help="training seed for the batch order of --batch-size")
     args = ap.parse_args(argv)
 
     cfg = load_mix_config(args.config)
@@ -35,7 +42,7 @@ def main(argv: list[str] | None = None) -> None:
         cfg = cfg.__class__(**{**cfg.__dict__, "dir": Path(args.dir)})
     print(f"building pools from {cfg.dir} ({len(cfg.sources)} sources)", flush=True)
     pools = build_pools(cfg)
-    allocations = allocate(cfg, pools)
+    allocations = allocate(cfg, pools, args.epochs)
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -48,7 +55,10 @@ def main(argv: list[str] | None = None) -> None:
         _write(out / f"{split}.jsonl", lines)
         print(f"{split}: {len(lines)} records", flush=True)
 
-    report = mix_report(cfg, pools, allocations)
+    report = mix_report(cfg, pools, allocations, args.epochs)
+    if cfg.run_repeat and args.batch_size:
+        report["loss_weights"] = suggest_loss_weights(cfg, pools, args.epochs, args.batch_size, args.train_seed)
+        print(f"suggested loss.weights: {report['loss_weights']['weights']}", flush=True)
     (out / "mix_report.json").write_text(json.dumps(report, indent=2))
     (out / "mix_report.md").write_text(report_markdown(report))
     print(f"report → {out / 'mix_report.md'}")

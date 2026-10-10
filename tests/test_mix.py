@@ -167,3 +167,42 @@ def test_real_mix_configs_load():
     assert full.share_alike and not nosa.share_alike
     assert {s.name for s in full.sources} == {s.name for s in nosa.sources}
     assert {s.name: s.cap for s in nosa.sources}["wanli"] is None
+
+
+def test_run_repeat_caps_repeats_over_the_whole_run(data):
+    from jevlite.data.mix import suggest_loss_weights
+
+    sources = {"b1": {}, "c1": {}, "s1": {}}
+    plain = _cfg(data, sources, total=200)
+    capped = _cfg(data, sources, total=200, run_repeat={"score": 1.0})
+    pools = build_pools(capped)
+
+    # without the cap Score (pool 40, quota 60) repeats 1.5× per epoch
+    assert {a.source: a.drawn for a in allocate(plain, pools, epochs=2)}["s1"] == 60
+    allocations = allocate(capped, pools, epochs=2)
+    drawn = {a.source: a.drawn for a in allocations}
+    assert drawn == {"b1": 100, "c1": 40, "s1": 20}  # Score shrinks to 40 / 2 epochs, the others keep their quota
+
+    seen = Counter()
+    for epoch in range(2):
+        lines = epoch_lines(capped, pools, allocations, epoch)
+        assert len(lines) == 160
+        seen.update(line for line in lines if json.loads(line)["type"] == "score")
+    assert len(seen) == 40 and set(seen.values()) == {1}  # every Score record exactly once over the run
+    assert epoch_lines(capped, pools, allocations, 1) == epoch_lines(capped, pools, allocations, 1)
+
+    report = mix_report(capped, pools, allocations, epochs=2)
+    assert report["total"] == 160 and report["nominal_total"] == 200
+    assert {r["source"]: r["run_repeat"] for r in report["train"]}["s1"] == 1.0
+    assert "Run-level repeat cap" in report_markdown(report)
+
+    lw = suggest_loss_weights(capped, pools, epochs=2, batch_size=8)
+    assert lw["presence"]["score"] < lw["presence_nominal"]["score"]
+    assert lw["weights"]["score"] > 1.0
+
+
+def test_run_repeat_validation(tmp_path):
+    with pytest.raises(ValueError, match="run_repeat"):
+        _cfg(tmp_path, {"b1": {}}, weights={"bool": 1.0}, run_repeat={"rank": 1.0})
+    with pytest.raises(ValueError, match="run_repeat"):
+        _cfg(tmp_path, {"b1": {}}, weights={"bool": 1.0}, run_repeat={"bool": 0})

@@ -12,6 +12,14 @@ primitive in the training data. Building a mix has two steps:
    than its quota is repeated (at most ``max_repeat`` times, else the build fails); a larger one is
    subsampled, with a fresh draw every epoch.
 
+   ``run_repeat: {primitive: r}`` caps how often a record of that primitive is seen over the **whole
+   run** (all ``epochs``), not per epoch: its quota shrinks to ``r · pool / epochs`` when the weight
+   asks for more, and the epochs walk through one fixed permutation of the pool, so with ``r ≤ 1`` no
+   record is seen twice. The freed slots are not handed to other primitives: the epoch gets shorter.
+   The primitive keeps its share of the gradient through ``loss.weights`` instead (``build_mix.py
+   --batch-size`` suggests the weights). Added 2026-10-10 for Score, which overfitted in epoch 2 of
+   ``stage_a-full-s42`` (todo, Stage A evaluation).
+
 Eval splits (``calib``, ``test_in``, ``test_ood``) are not weighted: every source keeps up to
 ``eval_cap`` records per split, the same ones every time.
 
@@ -72,6 +80,7 @@ class MixConfig:
     primitive_weights: dict[str, float]
     sources: tuple[SourceSpec, ...]
     max_repeat: float = 2.0
+    run_repeat: dict[str, float] = field(default_factory=dict)  # primitive → max times a record is seen per run
     eval_cap: int | None = 2000
     max_len: int = 512
     tokenizer: str = "answerdotai/ModernBERT-large"
@@ -86,9 +95,12 @@ class MixConfig:
         if not math.isclose(sum(weights.values()), 1.0, abs_tol=1e-6):
             raise ValueError(f"primitive_weights must sum to 1, got {sum(weights.values())}")
         sources = tuple(SourceSpec(name=n, **(spec or {})) for n, spec in d["sources"].items())
+        run_repeat = {p: float(r) for p, r in (d.get("run_repeat") or {}).items()}
+        if set(run_repeat) - set(PRIM_TYPES) or any(r <= 0 for r in run_repeat.values()):
+            raise ValueError(f"run_repeat must map primitives of {PRIM_TYPES} to positive numbers, got {run_repeat}")
         return cls(
             name=d.get("name", name), dir=Path(d["dir"]), total=int(d["total"]), primitive_weights=weights,
-            sources=sources, max_repeat=float(d.get("max_repeat", 2.0)), eval_cap=d.get("eval_cap", 2000),
+            sources=sources, max_repeat=float(d.get("max_repeat", 2.0)), run_repeat=run_repeat, eval_cap=d.get("eval_cap", 2000),
             max_len=int(d.get("max_len", 512)), tokenizer=d.get("tokenizer", cls.tokenizer), seed=int(d.get("seed", 42)),
             share_alike=bool(d.get("share_alike", True)),
         )
@@ -244,8 +256,8 @@ def _largest_remainder(total: int, shares: dict[Any, float]) -> dict[Any, int]:
     return counts
 
 
-def allocate(cfg: MixConfig, pools: Pools) -> list[Allocation]:
-    """How many records every (source, primitive) pool contributes to one epoch."""
+def allocate(cfg: MixConfig, pools: Pools, epochs: int = 1) -> list[Allocation]:
+    """How many records every (source, primitive) pool contributes to one epoch of a run of ``epochs``."""
     weights = {s.name: s.weight for s in cfg.sources}
     quotas = _largest_remainder(cfg.total, cfg.primitive_weights)
     out: list[Allocation] = []
@@ -254,7 +266,14 @@ def allocate(cfg: MixConfig, pools: Pools) -> list[Allocation]:
         quota = quotas.get(prim, 0)
         if quota and not keys:
             raise ValueError(f"primitive {prim!r} has weight {cfg.primitive_weights[prim]} but no training records")
+        run_cap = None
+        if prim in cfg.run_repeat:
+            # per source, so that no pool goes above the cap whatever the source weights
+            run_cap = {k: math.floor(cfg.run_repeat[prim] * len(pools.train[k]) / epochs) for k in keys}
+            quota = min(quota, sum(run_cap.values()))
         counts = _largest_remainder(quota, {k: len(pools.train[k]) * weights[k[0]] for k in keys})
+        if run_cap:
+            counts = {k: min(c, run_cap[k]) for k, c in counts.items()}
         for k in keys:
             a = Allocation(k[0], prim, len(pools.train[k]), counts[k])
             if a.repeat > cfg.max_repeat + 1e-9:
@@ -268,11 +287,17 @@ def allocate(cfg: MixConfig, pools: Pools) -> list[Allocation]:
 
 def epoch_lines(cfg: MixConfig, pools: Pools, allocations: Iterable[Allocation], epoch: int) -> list[str]:
     """The shuffled training lines of one epoch. Subsampled pools draw a fresh subset every epoch;
-    repeated pools contribute every record ⌊r⌋ times plus a fresh subset for the remainder."""
+    repeated pools contribute every record ⌊r⌋ times plus a fresh subset for the remainder. Pools of a
+    ``run_repeat`` primitive take the next ``drawn`` records of one permutation fixed for the run."""
     rng = random.Random(stable_hash(cfg.seed, "epoch", epoch))
     lines: list[str] = []
     for a in allocations:
         pool = pools.train[(a.source, a.primitive)]
+        if a.primitive in cfg.run_repeat and a.pool:
+            order = list(range(a.pool))
+            random.Random(stable_hash(cfg.seed, "run", a.source, a.primitive)).shuffle(order)
+            lines.extend(pool[order[(epoch * a.drawn + i) % a.pool]] for i in range(a.drawn))
+            continue
         full, rest = divmod(a.drawn, a.pool) if a.pool else (0, 0)
         lines.extend(pool * full)
         lines.extend(rng.sample(pool, rest))
@@ -289,20 +314,42 @@ def iter_records(lines: Iterable[str]) -> Iterator[Record]:
         yield Record.model_validate_json(line)
 
 
+def batch_presence(lines: list[str], batch_size: int, seed: int, epoch: int = 0) -> dict[str, float]:
+    """Share of training micro-batches that hold at least one question of each primitive, with the
+    length-grouped batching of ``train.py``. ``jev_loss`` averages within each primitive, so a
+    primitive's expected share of the gradient is ``loss weight × presence``, not its record count."""
+    from ..train import length_grouped_batches  # torch-heavy, only needed here
+
+    types = [json.loads(line)["type"] for line in lines]
+    batches = length_grouped_batches([len(line) for line in lines], batch_size, seed, epoch)
+    return {p: sum(any(types[i] == p for i in b) for b in batches) / len(batches) for p in PRIM_TYPES} if batches else {}
+
+
+def suggest_loss_weights(cfg: MixConfig, pools: Pools, epochs: int, batch_size: int, train_seed: int = 42) -> dict:
+    """``loss.weights`` that give every primitive the same expected gradient share as in the same mix
+    without ``run_repeat`` (weight = presence uncapped / presence capped), measured on epoch 0."""
+    nominal_cfg = MixConfig(**{**cfg.__dict__, "run_repeat": {}})
+    nominal = batch_presence(epoch_lines(nominal_cfg, pools, allocate(nominal_cfg, pools, epochs), 0), batch_size, train_seed)
+    capped = batch_presence(epoch_lines(cfg, pools, allocate(cfg, pools, epochs), 0), batch_size, train_seed)
+    weights = {p: round(nominal[p] / capped[p], 3) for p in PRIM_TYPES if capped.get(p)}
+    return {"batch_size": batch_size, "presence_nominal": nominal, "presence": capped, "weights": weights}
+
+
 # ---------------------------------------------------------------------------------------------------
 # Report
 
 
-def mix_report(cfg: MixConfig, pools: Pools, allocations: list[Allocation]) -> dict:
+def mix_report(cfg: MixConfig, pools: Pools, allocations: list[Allocation], epochs: int = 1) -> dict:
     by_prim = defaultdict(int)
     for a in allocations:
         by_prim[a.primitive] += a.drawn
+    total = sum(by_prim.values()) or cfg.total  # below cfg.total when run_repeat shortens the epoch
     rows = [
         {
             "source": a.source, "primitive": a.primitive, "available": pools.available[a.source],
             "dropped_unfit": pools.dropped_unfit[a.source], "pool": a.pool, "drawn": a.drawn,
             "repeat": round(a.repeat, 3), "share_of_primitive": round(a.drawn / by_prim[a.primitive], 4) if by_prim[a.primitive] else 0.0,
-            "share_of_total": round(a.drawn / cfg.total, 4),
+            "share_of_total": round(a.drawn / total, 4), "run_repeat": round(a.repeat * epochs, 3),
         }
         for a in allocations
     ]
@@ -310,7 +357,8 @@ def mix_report(cfg: MixConfig, pools: Pools, allocations: list[Allocation]) -> d
     for (split, source), lines in sorted(pools.eval.items()):
         evals[split][source] = len(lines)
     return {
-        "name": cfg.name, "total": cfg.total, "primitive_weights": cfg.primitive_weights, "max_len": cfg.max_len,
+        "name": cfg.name, "total": total, "nominal_total": cfg.total, "epochs": epochs, "run_repeat": cfg.run_repeat,
+        "primitive_weights": cfg.primitive_weights, "max_len": cfg.max_len,
         "share_alike": cfg.share_alike, "dropped_sa": {k: v for k, v in pools.dropped_sa.items() if v},
         "primitives": {p: {"drawn": by_prim.get(p, 0), "pool": sum(a.pool for a in allocations if a.primitive == p)} for p in PRIM_TYPES},
         "train": rows, "eval": {s: dict(v) for s, v in evals.items()},
@@ -319,6 +367,22 @@ def mix_report(cfg: MixConfig, pools: Pools, allocations: list[Allocation]) -> d
 
 def report_markdown(report: dict) -> str:
     out = [f"# Mix `{report['name']}`", "", f"{report['total']} training records per epoch, max_len {report['max_len']}.", ""]
+    if report.get("run_repeat"):
+        caps = ", ".join(f"{p} ≤ {r:g}×" for p, r in report["run_repeat"].items())
+        out += [
+            f"**Run-level repeat cap** over {report['epochs']} epochs: {caps}. The epoch is shorter than the nominal "
+            f"{report['nominal_total']} records; the weights below are the nominal shares, the Drawn column the real ones.", "",
+        ]
+    if report.get("loss_weights"):
+        lw = report["loss_weights"]
+        out += [
+            f"**Suggested `loss.weights`** (micro-batch {lw['batch_size']}, length-grouped as in training): keep every primitive's "
+            "share of the gradient as in the uncapped mix. Share of micro-batches with the primitive, uncapped → capped:", "",
+            "| Primitive | Uncapped | Capped | Weight |", "|---|---|---|---|",
+        ]
+        for p, w in lw["weights"].items():
+            out.append(f"| {p} | {lw['presence_nominal'][p]:.1%} | {lw['presence'][p]:.1%} | {w:.2f} |")
+        out.append("")
     if not report.get("share_alike", True):
         dropped = report.get("dropped_sa", {})
         out += [
@@ -337,6 +401,8 @@ def report_markdown(report: dict) -> str:
             f"| {r['source']} | {r['primitive']} | {r['available']} | {r['dropped_unfit']} | {r['pool']} | {r['drawn']} "
             f"| {r['repeat']:.2f}× | {r['share_of_primitive']:.1%} | {r['share_of_total']:.1%} |"
         )
+    if report.get("run_repeat"):
+        out += ["", "Repeats over the run: " + ", ".join(f"{r['source']} {r['run_repeat']:.2f}×" for r in report["train"] if r["primitive"] in report["run_repeat"])]
     for split, sources in report["eval"].items():
         out += ["", f"**{split}:** {sum(sources.values())} records — " + ", ".join(f"{k} {v}" for k, v in sources.items())]
     return "\n".join(out) + "\n"
