@@ -35,8 +35,18 @@ train:
   schedule: linear        # linear | cosine
   weight_decay: 0.01
   gradient_checkpointing: true
+  max_grad_norm: 1.0
+  num_workers: 2              # DataLoader workers (tokenisation overlaps the GPU)
+  log_every_steps: 50
+  eval_every_steps: 1000
+  eval_max_records: 2000      # per split (test_in, test_ood) for the periodic eval; the final eval uses all
+  checkpoint:
+    every_minutes: 40
+    keep: 2                   # newest checkpoints kept, locally and on the Hub
+    hub_repo: Nefelim584/jevlite-runs   # private; null = local only. Token: HF_TOKEN
   stage_a:
     max_len: 512
+    epochs: 2                 # train.e0.jsonl, train.e1.jsonl of the mix
     mix: mixes/stage_a.yaml   # relative to configs/; built by scripts/build_mix.py
                               # no-SA version: mixes/stage_a_nosa.yaml (experiment override)
   stage_b:
