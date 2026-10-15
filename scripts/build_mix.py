@@ -4,7 +4,7 @@
     uv run python scripts/build_mix.py --config configs/mixes/<with run_repeat>.yaml --out … --epochs 2 --batch-size 16
 
 Writes ``train.e{N}.jsonl`` per epoch (shuffled; subsampled pools draw a fresh subset each epoch),
-``calib.jsonl``, ``test_in.jsonl``, ``test_ood.jsonl``, and ``mix_report.json`` / ``mix_report.md``
+``calib.jsonl``, ``test_in.jsonl``, ``test_ood.jsonl``, ``dev.jsonl`` (with ``dev_cap``), and ``mix_report.json`` / ``mix_report.md``
 with pool sizes, draws and repeat factors per source and primitive.
 """
 
@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 
 from jevlite.data.mix import (
-    EVAL_SPLITS, allocate, build_pools, epoch_lines, eval_lines, load_mix_config, mix_report, report_markdown, suggest_loss_weights,
+    OUT_SPLITS, allocate, build_pools, epoch_lines, eval_lines, load_mix_config, mix_report, report_markdown, suggest_loss_weights,
 )
 
 
@@ -50,8 +50,10 @@ def main(argv: list[str] | None = None) -> None:
         lines = epoch_lines(cfg, pools, allocations, epoch)
         _write(out / f"train.e{epoch}.jsonl", lines)
         print(f"train.e{epoch}: {len(lines)} records", flush=True)
-    for split in EVAL_SPLITS:
+    for split in OUT_SPLITS:
         lines = eval_lines(pools, split)
+        if split == "dev" and not lines:
+            continue
         _write(out / f"{split}.jsonl", lines)
         print(f"{split}: {len(lines)} records", flush=True)
 

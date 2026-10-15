@@ -1,4 +1,7 @@
-"""Black-box checks of a baseline: option-order sensitivity, IIA, confidence on nonsense inputs.
+"""Black-box checks of a baseline: option-order sensitivity, IIA (any source and same source), confidence
+on nonsense inputs (overall and per primitive / predicted label), and with ``--shortcuts N`` the Bool
+hypothesis-only and passage-swap checks per source. Run every model on the same ``--data`` and seed, so
+the probed items are the same.
 
     uv run python scripts/probe_blackbox.py --baseline laya --data data/test.jsonl --out reports/laya_probes.json
     uv run python scripts/probe_blackbox.py --baseline jevlite --model data/runs/<RUN>/final --data data/test.jsonl --out …
@@ -26,12 +29,14 @@ def main(argv: list[str] | None = None) -> dict:
     ap.add_argument("--n-items", type=int, default=50)
     ap.add_argument("--n-perms", type=int, default=8)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--shortcuts", type=int, default=0, metavar="N",
+                    help="Bool shortcut probe (hypothesis-only, passage swap) on N records per source; 0 = off")
     args = ap.parse_args(argv)
 
     splits = [s.strip() for s in args.splits.split(",")] if args.splits else None
     predictor = load_baseline(args.baseline, args.model, args.device)
     records = [r for path in args.data for r in load_records(path, splits)]
-    result = run_probes(predictor, records, args.n_items, args.n_perms, args.seed)
+    result = run_probes(predictor, records, args.n_items, args.n_perms, args.seed, args.shortcuts)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(result, indent=1))
     print(json.dumps(result, indent=1))

@@ -39,7 +39,9 @@ train:
   num_workers: 2              # DataLoader workers (tokenisation overlaps the GPU)
   log_every_steps: 50
   eval_every_steps: 1000
-  eval_max_records: 2000      # per split (test_in, test_ood) for the periodic eval; the final eval uses all
+  eval_splits: [dev]          # periodic eval; recipe choices are made on it (todo, Stage A review, Q1)
+  final_splits: [test_in, test_ood]   # predictions on all records after the last step; never in the periodic eval
+  eval_max_records: {bool: 1000, choice: 1000, score: 500}   # periodic eval subset per split and primitive
   checkpoint:
     every_minutes: 40
     keep: 2                   # newest checkpoints kept, locally and on the Hub

@@ -23,6 +23,14 @@ primitive in the training data. Building a mix has two steps:
 Eval splits (``calib``, ``test_in``, ``test_ood``) are not weighted: every source keeps up to
 ``eval_cap`` records per split, the same ones every time.
 
+``dev_cap`` (mix level, per-source override) builds a ``dev`` split for mid-run eval and recipe
+choices, so that the test sets are used for the final evaluation only (todo, Stage A review, Q1). It
+takes the next ``dev_cap`` records of the ``test_in`` pool after the ``eval_cap`` ones, in the same
+hash order: ``test_in`` is unchanged, and no run has trained on or been evaluated on these records.
+``test_ood`` gives nothing to ``dev`` (its held-out templates and sources stay out of every decision),
+so sources that exist only in ``test_ood`` are never in ``dev``. Sources whose ``test_in`` pool is
+exhausted by ``eval_cap`` have no ``dev`` records. ``dev`` keeps CC BY-SA records, like the tests.
+
 ``share_alike: false`` builds the no-SA version (TODO Phase 3): CC BY-SA records (``Converter.is_share_alike``)
 are left out of ``train`` and ``calib``, the splits that fit parameters. ``test_in`` and ``test_ood``
 keep them, so both versions are compared on the same test sets.
@@ -53,6 +61,8 @@ from .public.base import stable_hash
 from .unified import Record
 
 EVAL_SPLITS = ("calib", "test_in", "test_ood")
+DEV_FROM = "test_in"  # the eval split whose pool remainder becomes ``dev``
+OUT_SPLITS = (*EVAL_SPLITS, "dev")
 
 
 @dataclass(frozen=True)
@@ -62,6 +72,7 @@ class SourceSpec:
     weight: float = 1.0
     fit_only: bool = False
     eval_cap: int | None = None  # overrides the mix-level eval_cap
+    dev_cap: int | None = None  # overrides the mix-level dev_cap
     share_alike: bool | None = None  # None: from the source's converter (an error for unknown sources)
 
     def is_share_alike(self, domain: str | None) -> bool:
@@ -82,6 +93,7 @@ class MixConfig:
     max_repeat: float = 2.0
     run_repeat: dict[str, float] = field(default_factory=dict)  # primitive → max times a record is seen per run
     eval_cap: int | None = 2000
+    dev_cap: int = 0  # records per source in ``dev`` (from the test_in pool after eval_cap); 0 = no dev
     max_len: int = 512
     tokenizer: str = "answerdotai/ModernBERT-large"
     seed: int = 42
@@ -101,6 +113,7 @@ class MixConfig:
         return cls(
             name=d.get("name", name), dir=Path(d["dir"]), total=int(d["total"]), primitive_weights=weights,
             sources=sources, max_repeat=float(d.get("max_repeat", 2.0)), run_repeat=run_repeat, eval_cap=d.get("eval_cap", 2000),
+            dev_cap=int(d.get("dev_cap") or 0),
             max_len=int(d.get("max_len", 512)), tokenizer=d.get("tokenizer", cls.tokenizer), seed=int(d.get("seed", 42)),
             share_alike=bool(d.get("share_alike", True)),
         )
@@ -182,6 +195,12 @@ def fits_checker(tokenizer_name: str, max_len: int) -> Callable[[dict], bool]:
     return fits
 
 
+def _with_split(line: str, split: str) -> str:
+    row = json.loads(line)
+    row["split"] = split
+    return json.dumps(row, ensure_ascii=False)
+
+
 def build_pools(cfg: MixConfig, fits: Callable[[dict], bool] | None = None) -> Pools:
     """Read every source once and keep its capped training pool and its eval records."""
     pools = Pools()
@@ -192,8 +211,10 @@ def build_pools(cfg: MixConfig, fits: Callable[[dict], bool] | None = None) -> P
         if not path.exists():
             raise FileNotFoundError(f"{path}: run scripts/convert_public.py --datasets {spec.name}")
         eval_cap = spec.eval_cap if spec.eval_cap is not None else cfg.eval_cap
+        dev_cap = (spec.dev_cap if spec.dev_cap is not None else cfg.dev_cap) if eval_cap is not None else 0
         train = _Capped(spec.cap)
-        evals = {s: _Capped(eval_cap) for s in EVAL_SPLITS}
+        # DEV_FROM keeps eval_cap + dev_cap by the same key: the first eval_cap are the test records
+        evals = {s: _Capped(eval_cap + dev_cap if s == DEV_FROM and dev_cap else eval_cap) for s in EVAL_SPLITS}
         available = unfit = sa = 0
         with path.open() as f:
             for line in f:
@@ -220,6 +241,10 @@ def build_pools(cfg: MixConfig, fits: Callable[[dict], bool] | None = None) -> P
             pools.train[(spec.name, prim)] = lines
         for split, capped in evals.items():
             lines = [line for _, line in capped.items()]
+            if split == DEV_FROM and dev_cap:
+                lines, dev = lines[:eval_cap], lines[eval_cap:]
+                if dev:
+                    pools.eval[("dev", spec.name)] = [_with_split(line, "dev") for line in dev]
             if lines:
                 pools.eval[(split, spec.name)] = lines
         pools.available[spec.name] = available

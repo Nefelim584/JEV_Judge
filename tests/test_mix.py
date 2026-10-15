@@ -206,3 +206,20 @@ def test_run_repeat_validation(tmp_path):
         _cfg(tmp_path, {"b1": {}}, weights={"bool": 1.0}, run_repeat={"rank": 1.0})
     with pytest.raises(ValueError, match="run_repeat"):
         _cfg(tmp_path, {"b1": {}}, weights={"bool": 1.0}, run_repeat={"bool": 0})
+
+
+def test_dev_is_the_test_in_remainder_and_leaves_tests_unchanged(tmp_path):
+    _source(tmp_path, "b1", 50, "bool", n_test=40)
+    rows = [Record(id=f"ood:{i}", source="ood", split="test_ood", state="s", type="bool", prompt="p", target=1.0) for i in range(30)]
+    write_jsonl(tmp_path / "ood.jsonl", rows)
+    base = build_pools(_cfg(tmp_path, {"b1": {}, "ood": {}}, weights={"bool": 1.0}, eval_cap=10))
+    pools = build_pools(_cfg(tmp_path, {"b1": {}, "ood": {"dev_cap": 5}}, weights={"bool": 1.0}, eval_cap=10, dev_cap=25))
+    for split in ("test_in", "test_ood", "calib"):
+        assert eval_lines(pools, split) == eval_lines(base, split)  # byte-identical tests
+    dev = [json.loads(x) for x in eval_lines(pools, "dev")]
+    assert len(dev) == 25 and {r["source"] for r in dev} == {"b1"}  # test_ood-only sources never reach dev
+    assert {r["split"] for r in dev} == {"dev"}
+    test_ids = {json.loads(x)["id"] for x in eval_lines(pools, "test_in")}
+    assert not test_ids & {r["id"] for r in dev}
+    capped = build_pools(_cfg(tmp_path, {"b1": {"dev_cap": 100}}, weights={"bool": 1.0}, eval_cap=10))
+    assert len(eval_lines(capped, "dev")) == 30  # the remainder of a 40-record pool

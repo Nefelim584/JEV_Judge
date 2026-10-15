@@ -47,6 +47,10 @@ ROWS = {
     "fever": ("train", {"id": 1, "claim": "Oslo is in Norway.", "label": "SUPPORTS", "pages": [{"title": "Oslo", "sentences": ["Oslo is a city.", "It is the capital of Norway."], "evidence": [1]}]}),
     "hover": ("train", {"uid": "h1", "claim": "A and B are dogs.", "label": "SUPPORTED", "num_hops": 2, "pages": [{"title": "A", "text": "A is a dog."}, {"title": "B", "text": "B is a dog breed."}]}),
     "feverous": ("train", {"id": 2, "claim": "X won in 1990.", "label": "NOT ENOUGH INFO", "pages": [{"title": "X", "sentences": ["X is a team.", "", "X played in 1990."], "evidence": [2]}]}),
+    "llm_aggrefact": ("test", {"idx": 0, "dataset": "RAGTruth", "doc": "The bridge opened in 1932.", "claim": "The bridge opened in 1932.", "label": 1}),
+    "faitheval": ("test", {"task": "counterfactual", "idx": 0, "id": "Mercury_1", "question": "What melts ice?", "context": "Studies show cold melts ice.",
+                           "choices": "{'label': ['A', 'B'], 'text': ['heat', 'cold']}", "answerKey": "B"}),
+    "mmlu": ("test", {"idx": 0, "question": "2 + 2 =", "subject": "elementary_mathematics", "choices": ["3", "4", "5", "6"], "answer": 1}),
     "nq": ("train", {"id": 3, "question": "who wrote the book", "title": "The Book", "passage": "The Book is a novel by Ann Lee.", "answerable": True}),
 }
 
@@ -71,7 +75,7 @@ def test_convert_gives_valid_deterministic_records(name):
 
 
 def test_held_out_datasets_go_to_test_ood_only():
-    for name in ("contract_nli", "banking77"):
+    for name in ("contract_nli", "banking77", "llm_aggrefact", "faitheval", "mmlu"):
         split, row = ROWS[name]
         assert {r.split for r in get_converter(name).convert(row, split)} == {"test_ood"}
 
@@ -268,3 +272,16 @@ def test_share_alike_flags():
     assert sa == {"boolq", "snli", "qnli", "vitaminc", "squad_v2", "clapnq", "arc", "dbpedia14", "fever", "hover", "feverous", "nq"}
     multi_nli = CONVERTERS["multi_nli"]
     assert multi_nli.is_share_alike("fiction") and not multi_nli.is_share_alike("travel")
+
+
+def test_eval_only_sources():
+    (agg,) = get_converter("llm_aggrefact").convert({**ROWS["llm_aggrefact"][1], "label": 0}, "test")
+    assert agg.type == "bool" and agg.target == 0.0 and agg.domain == "aggrefact/RAGTruth"
+    faith = get_converter("faitheval")
+    (cf,) = faith.convert(ROWS["faitheval"][1], "test")
+    assert cf.type == "choice" and cf.candidates[cf.target] == "cold"  # the option the context supports
+    assert cf.domain == "faitheval/counterfactual" and cf.field("family") == "mcqa"
+    (un,) = faith.convert({"task": "unanswerable", "idx": 0, "qid": "q1", "question": "Who won?", "context": "A match was played.", "subset": "SQuAD"}, "test")
+    assert un.type == "bool" and un.target == 0.0 and un.domain == "faitheval/unanswerable/squad" and un.split == "test_ood"
+    (mm,) = get_converter("mmlu").convert(ROWS["mmlu"][1], "test")
+    assert mm.candidates[mm.target] == "4" and mm.domain == "mmlu/elementary_mathematics"

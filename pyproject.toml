@@ -19,6 +19,7 @@ dependencies = [
     "scipy>=1.11",
     "torch>=2.5",
     "transformers>=4.56",  # ModernBERT needs >=4.48; `dtype=` in from_pretrained needs >=4.56
+    "typesafe-sdk>=0.7.5",
 ]
 
 [project.optional-dependencies]

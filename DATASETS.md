@@ -48,6 +48,7 @@ Decisions:
 | Score | HelpSteer3 (feedback) | all (~41k) | |
 | Choice K = 2 | summarize_from_feedback (comparisons) | 30k | the axis split is eval-only |
 | `test_ood` | ContractNLI, BANKING77 | — | held out |
+| `test_ood_source` (2026-10-10, Stage A review Q3) | MMLU (test, 3k of 14k), FaithEval (unanswerable + counterfactual, all 3.5k), LLM-AggreFact (test, gated: after HF access) | — | eval only, converters in `data/public/eval_only.py`; FaithEval-inconsistent left out (no label in our schema) |
 | eval only | MMLU (test/dev), LLM-AggreFact, RAGTruth, WiCE, SciFact, SummEval, FaithEval | — | section 3 and 6 |
 
 Not in Stage A, but kept as **seeds for Phase 4 perturbations**: HotpotQA (two-chunk claims), TAT-QA and FinQA (tables, numbers). They have no negatives of their own.

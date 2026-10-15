@@ -36,7 +36,7 @@ from ..schema import BoolQuestion, ChoiceQuestion, NonEmptyStr, PrimType, Questi
 #   test_ood  — held-out domains and question templates (and, for synthetic judge data, held-out
 #               perturbations and criteria, see dataset_dicr.md section 12);
 #   judge_test — the human-labelled judge test set from our system. Frozen, never trained on.
-SPLITS = ("train", "calib", "test_in", "test_ood", "judge_test")
+SPLITS = ("train", "calib", "dev", "test_in", "test_ood", "test_ood_source", "test_ood_template", "judge_test")
 
 
 class Record(BaseModel):

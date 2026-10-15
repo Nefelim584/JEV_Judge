@@ -12,9 +12,12 @@
 - **Checkpoints:** every ``train.checkpoint.every_minutes`` and at the end (``checkpoint.py``,
   optionally mirrored to the HF Hub). ``max_minutes`` stops early with a checkpoint (Kaggle sessions
   end after 12 h); the next call with the same run name resumes from it.
-- **Eval:** every ``train.eval_every_steps`` on a fixed subset of ``test_in`` / ``test_ood``; after
-  the last step, predictions on all of both (``preds.jsonl``, the ``scripts/eval.py`` format) and the
-  final model (``final/``).
+- **Eval:** every ``train.eval_every_steps`` on a fixed subset of ``train.eval_splits`` (default
+  ``dev``; ``train.eval_max_records`` per split, or per primitive as a dict); after the last step,
+  predictions on all of ``train.final_splits`` (default ``test_in`` / ``test_ood``; ``preds.jsonl``,
+  the ``scripts/eval.py`` format) and the final model (``final/``). The tests take no part in the
+  periodic eval, so no choice made from the learning curves has seen them (todo, Stage A review, Q1);
+  a mix without ``dev.jsonl`` trains without periodic eval.
 """
 
 from __future__ import annotations
@@ -45,7 +48,8 @@ from .losses import LossConfig, jev_loss
 from .model import JevLite, build_model, question_probs
 from .reports.training import TrainingLog
 
-EVAL_SPLITS = ("test_in", "test_ood")
+EVAL_SPLITS = ("dev",)  # periodic eval during training: recipe choices are made on it
+FINAL_SPLITS = ("test_in", "test_ood")  # predictions on every record after the last step
 
 
 # ---------------------------------------------------------------------------- data order
@@ -77,8 +81,12 @@ def rank_batches(batches: list[list[int]], step_from: int, steps: int, world: in
     return [batches[(s * accum + a) * world + rank] for s in range(step_from, steps) for a in range(accum)]
 
 
-def eval_subset(records: list[Record], n: int | None, seed: int) -> list[Record]:
-    """A fixed subset (stable hash of the id), the same in every run and session."""
+def eval_subset(records: list[Record], n: int | dict[str, int] | None, seed: int) -> list[Record]:
+    """A fixed subset (stable hash of the id), the same in every run and session. ``n`` is a total, or
+    a count per primitive (``{"bool": 1000, "score": 500}``; a primitive left out keeps all records),
+    so that a small primitive such as Score gets enough records for a readable curve."""
+    if isinstance(n, dict):
+        return [r for prim in TYPES for r in eval_subset([r for r in records if r.type == prim], n.get(prim), seed)]
     if n is None or len(records) <= n:
         return records
     return sorted(records, key=lambda r: stable_hash(seed, "eval", r.id))[:n]
@@ -229,13 +237,17 @@ def train(
         (run_dir / "config.yaml").write_text(yaml.safe_dump({"stage": stage, "meta": meta or {}, "cfg": cfg}, sort_keys=False))
     log = TrainingLog(run_dir, run=run_name, meta={"stage": stage, "mix": mix_name, "total_steps": total_steps, **(meta or {})}) if d.main else None
 
+    eval_splits, final_splits = tuple(t.get("eval_splits", EVAL_SPLITS)), tuple(t.get("final_splits", FINAL_SPLITS))
     eval_sets: dict[str, list[Record]] = {}
     if d.main:
-        for split in EVAL_SPLITS:
+        for split in dict.fromkeys(eval_splits + final_splits):
             p = mix_dir / f"{split}.jsonl"
             if p.exists():
                 eval_sets[split] = load_records(p)
-    eval_small = {s: eval_subset(r, t.get("eval_max_records"), cfg["seed"]) for s, r in eval_sets.items()}
+        if not any(s in eval_sets for s in eval_splits):
+            logger.warning("no {} in {}: training without periodic eval (the tests are for the final eval only)", "/".join(eval_splits), mix_dir)
+    eval_max = t.get("eval_max_records")
+    eval_small = {s: eval_subset(eval_sets[s], dict(eval_max) if isinstance(eval_max, dict) else eval_max, cfg["seed"]) for s in eval_splits if s in eval_sets}
     eval_bs = int(t.get("eval_batch_size", micro * 4))
 
     net = model
@@ -336,7 +348,7 @@ def train(
         logger.info("training done at step {}; final checkpoint and predictions", gstep)
         checkpoint(n_epochs - 1, steps_per_epoch[-1])
         predictor = Predictor(model, text_encoder, amp_dtype=rt.amp_dtype)
-        preds = [p for split in EVAL_SPLITS if split in eval_sets for p in predictor.predict_records(eval_sets[split], eval_bs)]
+        preds = [p for split in final_splits if split in eval_sets for p in predictor.predict_records(eval_sets[split], eval_bs)]
         write_jsonl(run_dir / "preds.jsonl", preds)
         final = save_final(model, tokenizer, cfg, run_dir / "final")
         store.upload_folder(final, "final")

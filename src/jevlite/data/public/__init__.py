@@ -8,6 +8,7 @@ peak, FEVEROUS alone 64 GB): ``all`` includes them, so convert them where the di
 from __future__ import annotations
 
 from .base import Converter
+from .eval_only import MMLU, FaithEval, LLMAggreFact
 from .classification import BANKING77, CLINC150, MASSIVE, DBpedia14, GoEmotions
 from .factcheck import FEVER, FEVEROUS, ContractNLI, HoVer, TabFact, VitaminC
 from .mcqa import ARC, CommonsenseQA, CosmosQA, OpenBookQA, SocialIQa
@@ -26,6 +27,8 @@ CONVERTERS: dict[str, type[Converter]] = {
         HelpSteer2, HelpSteer3, SummarizeFromFeedback,
         # test_ood only
         ContractNLI, BANKING77,
+        # test_ood only, eval-only sources (todo, Stage A review, Q3)
+        LLMAggreFact, FaithEval, MMLU,
     )
 }
 

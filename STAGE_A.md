@@ -5,13 +5,21 @@
 > same 47,557 test records. Offline public-data numbers only: they do **not** answer H0 (jev-lite vs the
 > production LLM judge), which needs the human-labelled judge test set of Phase 11.
 
-**In short.**
+> **Revised 2026-10-11 after a review of the evaluation** (todo Phase 6, "Stage A — review of the
+> evaluation"). The first version compared the models on test sets that had also served the mid-run
+> eval, mixed new sources with new templates under `test_ood`, kept test records whose passage was
+> trained on, and used unpaired intervals. Section 2a gives the corrected numbers; the sections below
+> it keep the first-version numbers (all 47,557 records) where they are still useful and say where a
+> conclusion changed.
 
-- jev-lite beats both baselines on every primitive, on `test_in` and on `test_ood`: Bool 0.883 vs 0.730, Choice 0.800 vs 0.635, Score 0.599 vs 0.314 (best baseline each).
-- It is also better calibrated before any temperature is fitted: Bool ECE 0.033, NLL 0.285.
-- It solves the multi-hop faithfulness case that broke both baselines: HoVer 0.866 vs 0.707. Tables are no longer at chance: TabFact 0.706.
-- **One bar is not met:** held-out ContractNLI, 0.775 vs NLI's 0.819. The ranking there is better (AUC 0.931 vs 0.884); the threshold is not, and the model is too sceptical on an unseen domain.
-- Three issues were found: ClapNQ's 1.000 is a data shortcut (section 8), Score overfits in the second epoch (section 7), and confidence still does not drop on nonsense inputs (section 6).
+**In short (revised).**
+
+- **On sources and templates it was trained on, jev-lite is far ahead** of both zero-shot baselines, with paired tests on clean records (section 2a): Bool +12, Choice +21, Score +31 points over the best baseline on `test_in`; the same on held-out templates (`test_ood_template`).
+- **On genuinely new sources the lead is much smaller and not uniform** (`test_ood_source`, 11,883 records): Bool 0.603 vs 0.542, Choice 0.635 vs 0.585 overall, but per source **two significant losses to NLI** (ContractNLI Bool −4.8, FaithEval counterfactual −6.1), ties on BANKING77, MultiNLI-mismatched Bool and MMLU, and wins on MultiNLI-mismatched Choice and ContractNLI Choice (borderline). Against Laya: no losses.
+- **The refusal / answerability proxy fails on a new benchmark:** FaithEval-unanswerable (the answer was removed from the context) 0.490; the model says "answerable" for half of them (NLI 0.373, Laya 0.457). Answerability on trained sources (0.91) does not transfer.
+- **Calibration does not transfer to new sources:** Bool ECE 0.031 on `test_in`, 0.295 on `test_ood_source`; ContractNLI 0.199 (NLI 0.107), Choice on new sources 0.114 (NLI 0.045).
+- **ContractNLI is a threshold shift, not truncation** (3% of records are truncated); the class balance of the NLI training sources explains about a quarter of the shift (section 3.2).
+- Retracted from the first version: "Score overfits in epoch 2" (116 / 81 noisy records, not confirmed), "every step clipped" as a problem (not for Adam), and the reading of the nonsense probe (section 6, re-run on the same items for all models).
 
 ## 1. Setup
 
@@ -34,7 +42,46 @@ Eval every 1,000 steps on a fixed 2,000-record subset per split; final predictio
 
 **How to read the comparison.** The baselines are zero-shot; jev-lite was trained on the train splits of the same sources. `test_in` is therefore in-distribution for jev-lite only. The fair claims rest on `test_ood` and on the faithfulness sources it was not tuned on, ContractNLI and HoVer's held-out templates. Neither side has fitted temperatures.
 
-## 2. Headline numbers
+## 2a. Revised evaluation (2026-10-11)
+
+**What changed in the method** (code: `jevlite/data/overlap.py`, `scripts/clean_eval.py`, `jevlite/paired.py`, `scripts/compare_paired.py`):
+
+- **Clean test sets** (`data/mix/stage_a/clean/`, `overlap_report.md`): records whose passage occurs in the training data of `stage_a` or `stage_a_nosa` are dropped (passage = list item / whole string, exact or first 200 characters; ~4.5% overall, BoolQ 27–30%, HoVer ~28%, HelpSteer3 53–60%, NQ 12–14%), and so are the 2 × 2,000 records of the mid-run eval subset, which took part in decisions.
+- **`test_ood` split in two:** `test_ood_source` = a (source, domain) never trained on — ContractNLI, BANKING77, the five MultiNLI mismatched genres, and two eval-only sources added on 2026-10-11, **FaithEval** (unanswerable: Bool, all negative; counterfactual: Choice) and **MMLU**; `test_ood_template` = held-out templates on trained sources. LLM-AggreFact waits for HF access.
+- **Paired tests** on the same records: Δ accuracy with a paired bootstrap CI and McNemar's exact test, Holm-corrected within each table; "win" / "loss" only when both say so.
+- From the next run on, the mid-run eval uses a separate `dev` split (the unused remainder of the `test_in` pools), never the tests.
+
+**Clean numbers, NLI / Laya / jev-lite** (48,457 records):
+
+| | `test_in` (19,272) | `test_ood_template` (17,302) | `test_ood_source` (11,883) |
+|---|---|---|---|
+| Bool accuracy | 0.763 / 0.723 / **0.882** | 0.569 / 0.770 / **0.902** | 0.542 / 0.519 / **0.603** |
+| Bool ECE | 0.161 / 0.076 / **0.031** | 0.314 / 0.051 / **0.026** | 0.411 / 0.367 / **0.295** |
+| Choice accuracy | 0.595 / 0.596 / **0.803** | 0.617 / 0.622 / **0.794** | 0.558 / 0.585 / **0.635** |
+| Choice ECE | 0.072 / 0.125 / **0.040** | 0.056 / 0.087 / **0.052** | **0.045** / 0.046 / 0.114 |
+| Score accuracy | 0.242 / 0.309 / **0.620** | 0.234 / 0.315 / **0.591** | — |
+
+**Paired, jev-lite vs the best baseline per cell** (`data/runs/stage_a-full-s42/paired/`):
+
+| Cell | n | jev-lite | best baseline | Δ [95% CI] | Verdict |
+|---|---|---|---|---|---|
+| `test_in` Bool / Choice / Score | 8,902 / 9,473 / 897 | 0.882 / 0.803 / 0.620 | 0.763 / 0.596 / 0.309 | +12.0 / +20.7 / +31.1 | win |
+| `test_ood_template` Bool / Choice / Score | 4,445 / 11,925 / 932 | 0.902 / 0.794 / 0.591 | 0.770 / 0.622 / 0.315 | +13.3 / +17.3 / +27.6 | win |
+| `test_ood_source` Bool / Choice | 3,836 / 8,047 | 0.603 / 0.635 | 0.542 / 0.585 | +6.1 / +5.0 | win |
+| ContractNLI Bool | 976 | 0.768 | NLI 0.817 | −4.8 [−7.8, −1.6] | **loss** |
+| ContractNLI Choice | 953 | 0.605 | Laya 0.554 | +5.1 [+0.3, +9.9] | tie (p_Holm 0.19) |
+| BANKING77 | 2,755 | 0.856 | Laya 0.846 | +1.1 [−0.2, +2.4] | tie |
+| MultiNLI mismatched Bool | 370 | 0.930 | NLI 0.954 | −2.4 [−4.9, 0.0] | tie |
+| MultiNLI mismatched Choice | 347 | 0.876 | Laya 0.634 | +24.2 | win |
+| FaithEval unanswerable (Bool) | 2,490 | 0.490 | Laya 0.457 | +3.3 [+1.0, +5.6] | tie (p_Holm 0.06) |
+| FaithEval counterfactual (Choice) | 981 | 0.736 | NLI 0.797 | −6.1 [−9.4, −3.0] | **loss** |
+| MMLU | 2,996 | 0.379 | NLI 0.382 | −0.3 [−2.4, +1.9] | tie |
+
+Over all 61 source × split cells: vs NLI 43 wins, 16 ties, 2 losses; vs Laya 52 wins, 9 ties, 0 losses.
+
+**Reading.** The large margins are on data the model was trained on (sources and, for templates, the same sources). On new data the useful signal is ranking (ContractNLI AUC) rather than accuracy at 0.5, and calibration breaks. The judge will meet new domains first, so these are the numbers that matter for it; Stage B (domain variety) and Phase 7 (a calibrator that can move the bias) target exactly this.
+
+## 2. Headline numbers (first version: all 47,557 records, before cleaning)
 
 Point estimates over all of `test_in` + `test_ood`; 95% bootstrap intervals (1,000 resamples) in `data/runs/stage_a-full-s42/report/`.
 
@@ -103,11 +150,15 @@ Point estimates over all of `test_in` + `test_ood`; 95% bootstrap intervals (1,0
 | mean P(supported) (45% of records are positive) | 0.42 | 0.54 | **0.26** |
 | recall: supported / not supported | 0.75 / 0.87 | 0.69 / 0.51 | **0.52** / 0.98 |
 
-jev-lite orders ContractNLI claims better than NLI, but its probabilities are shifted down: on legal NDAs, a domain and a document style it has not seen, it calls half of the supported claims unsupported. For the judge this is the failure mode to expect on a new customer domain: **too strict, not too lenient**. Temperature scaling (Phase 7) cannot fix it, since a temperature does not move the 0.5 point of a Bool. What can:
+jev-lite orders ContractNLI claims better than NLI, but its probabilities are shifted down: on legal NDAs, a domain and a document style it has not seen, it calls half of the supported claims unsupported. For the judge this is the failure mode to expect on a new customer domain: **too strict, not too lenient**. Temperature scaling (Phase 7) cannot fix it, since a temperature does not move the 0.5 point of a Bool.
+
+**Cause, checked (2026-10-11).** *Truncation is excluded:* state + claim p50 186, p90 350 tokens; 2.9% (31 records) exceed 512, and they are worse (0.645) but too few. *Class balance explains part of it:* ContractNLI goes through template `nli/claim`, whose training positives are 33–37% on the NLI sources (MultiNLI, SNLI, WANLI) and 50–61% on fact-checking sources; ContractNLI has 45%. Shifting the logit by the prior difference (0.34 → 0.45, +0.46) lifts accuracy 0.775 → 0.797; a shift that matches the true positive rate (+1.99, an oracle that uses test labels) → 0.860. So about a quarter of the shift is the training prior, the rest the domain. ECE on ContractNLI is 0.199 (NLI 0.107), hidden by the pooled 0.033. What can help:
 
 - more domain variety in the training data (Phase 4: synthetic data over 18 domains, 4 held out);
 - a bias term in the answer-level calibrator fitted on in-domain labels (Phase 11 already plans one on human labels);
-- watching the per-domain base rate in production.
+- watching the per-domain base rate in production;
+- label-shift estimation without labels on a new domain (EM on predicted probabilities), to try in Phase 7;
+- balancing positive rates per template in the Stage B mix.
 
 ### 3.3 Answerability and the negative class
 
@@ -196,36 +247,60 @@ Spearman 0.666 and MAE 0.59 levels, against 0.22 and 1.03 for Laya. The criteria
 
 Escalating the 20% least confident Bool answers lifts accuracy from 0.883 to 0.945; AURC falls from 0.147 (Laya) to 0.030. The cascade of todo 2.12 becomes viable on this signal, with the caveat of section 6.3.
 
-## 6. Black-box probes (200 items, `test_in`)
+## 6. Black-box probes (revised 2026-10-11: same 200 items for all three models)
 
-Run with `probe_blackbox.py --baseline jevlite`. **Caveat:** the baselines' probes ran on the `test_in` of 2026-10-08, before FEVER, HoVer and NQ were added, so their 200-item sample differs from ours. The comparison is indicative. Re-running the baseline probes on today's sample needs no Kaggle quota.
+Re-run on 2026-10-11 for NLI, Laya and jev-lite with the same data (clean `test_in`), seed and items: `probe_blackbox.py --n-items 200 --shortcuts 200`, results in `data/probes_2026-10-11/`. The first version compared jev-lite with baseline probes on an older sample; the numbers below replace them (the charts in `docs/stage_a/figures/` still show the first version).
 
 ### 6.1 Order sensitivity and IIA
 
 | | NLI | Laya | jev-lite |
 |---|---|---|---|
-| mean spread of an option's probability over 8 permutations | 0.000 | 0.099 | **0.045** |
-| argmax changes under a permutation | 0% | 14% | **3.9%** |
-| mean change of log-ratios when an option is added (IIA) | 0.000 | 0.92 | **0.34** |
-| probability mass taken by the added (wrong) option | 0.077 | 0.102 | **0.015** |
+| mean spread of an option's probability over 8 permutations | 0.000 | 0.085 | **0.037** |
+| argmax changes under a permutation | 0% | 12.4% | **2.8%** |
+| IIA: mean change of log-ratios, added option from **any** source | 0.000 | 0.97 | **0.31** |
+| IIA: same, added option from the **same source** (near-miss, 173 items) | 0.000 | 0.79 | **0.26** |
+| mass taken by the added (wrong) option: any / same source | 0.103 / 0.104 | 0.108 / 0.098 | **0.020 / 0.040** |
 
-Option shuffling in training worked: the packed layout reads options in one sequence and is not order-free by construction, yet the answer flips in 3.9% of permutations against Laya's 14%. An irrelevant extra option takes 1.5% of the mass, which is less than NLI, an order-free model, gives it.
+Option shuffling in training worked: the answer flips in 2.8% of permutations (Laya 12%). A near-miss option from the same source takes twice the mass of an unrelated one (4% vs 2%), still well below what the order-free NLI model gives it (10%); IIA holds about as well with near-misses as with unrelated options.
 
-### 6.2 Confidence on nonsense inputs
+### 6.2 Confidence on nonsense inputs, by primitive and predicted label
 
-![Confidence on real vs nonsense states](docs/stage_a/figures/nonsense_confidence.png)
-
-*Mean heuristic confidence when the state is replaced.* [Interactive version](docs/stage_a/figures/nonsense_confidence.html)
-
-| State | NLI | Laya | jev-lite |
+| State → mean confidence | NLI | Laya | jev-lite |
 |---|---|---|---|
-| real | 0.449 | 0.412 | 0.680 |
-| shuffled words | 0.393 | 0.319 | 0.542 |
-| random characters | 0.361 | 0.519 | 0.615 |
+| all items: real / shuffled words / random characters | 0.51 / 0.42 / 0.35 | 0.43 / 0.32 / 0.54 | 0.70 / 0.51 / 0.62 |
+| **Bool** (90): real / random characters | 0.73 / 0.75 | 0.37 / 0.81 | 0.72 / 0.89 |
+| Bool, random characters: share answered "no" | 98% | 47% | **99%** |
+| Bool, shuffled words: share answered "yes" (confidence) | 29% (0.47) | 53% (0.28) | 30% (0.33) |
+| **Choice** (102): real / shuffled words / random characters | 0.35 / 0.27 / 0.03 | 0.50 / 0.37 / 0.33 | **0.68 / 0.58 / 0.39** |
+| Score (8 items only): real / random characters | 0.07 / 0.01 | 0.32 / 0.13 | 0.54 / 0.53 |
 
-### 6.3 What it means
+### 6.3 What it means (revised)
 
-**Confidence still does not notice garbage.** On random characters jev-lite is almost as confident (0.62) as on real text (0.68), and more confident than on shuffled words. The entropy heuristic is a good ranking signal on real inputs (section 5), but it cannot catch inputs that are broken or off-distribution. That is what the learned confidence head (v2, todo 2.8) is for. Keep it in the v1 release (open decision in todo section 7).
+The first version read the pooled numbers as "confidence does not notice garbage". Split by primitive, that reading does not hold:
+
+- **Bool:** on random characters jev-lite answers "no" for 89 of 90 claims with confidence 0.90. "The text does not support the claim" is the **right** answer for garbage, so high confidence there is correct, and it is what pushed the pooled number up.
+- **Choice:** confidence does drop, 0.68 → 0.39 on random characters, but only to 0.58 on shuffled words: a bag of the right words still looks like evidence.
+- **Bool on shuffled words:** 30% "yes" (NLI 29%), with low confidence (0.33). Word order is partly ignored, as by the NLI model.
+- **Score:** 8 items, no conclusion.
+
+The entropy heuristic is therefore usable for garbage on Choice, weak on shuffled text, and silent on Score. The learned confidence head (todo 2.8) is still worth having for the cascade, but the argument for it is the weak drop on shuffled words and the poor calibration on new sources (section 2a), not "no reaction to garbage".
+
+### 6.4 Shortcuts on Bool: hypothesis-only and passage swap
+
+Per source, 200 Bool records: the claim / question with an empty state ("(no text)") and with the state of another record of the same source. Without evidence, "yes" should disappear.
+
+| Share answered "yes": real / empty state / swapped state | NLI | Laya | jev-lite |
+|---|---|---|---|
+| HoVer | 0.70 / 0.00 / 0.26 | 0.81 / 0.30 / 0.08 | 0.58 / 0.00 / **0.00** |
+| FEVER, VitaminC, MultiNLI, SNLI, WANLI, QNLI | ≤ 0.10 on swap | ≤ 0.35 empty | **0.00–0.03** both |
+| BoolQ / NQ / SQuAD 2.0 | 0.07 / 0.06 / 0.03 swap | 0.07 / 0.04 / 0.03 | 0.03 / 0.01 / 0.01 |
+| **TabFact** | 0.39 / 0.00 / 0.00 | 0.66 / 0.12 / 0.15 | 0.64 / 0.00 / **0.54** |
+| **ClapNQ** | 0.66 / 0.00 / 0.33 | 0.68 / 0.01 / 0.05 | 0.48 / 0.00 / **0.54** |
+
+- **No claim-only shortcut anywhere:** with an empty state jev-lite answers "no" for every source, so hypothesis-only accuracy equals the negative rate (never above the majority class). HoVer, the first suspect, passes both tests: its lead over NLI is not a shortcut.
+- **TabFact is a passage-type shortcut:** with a different table jev-lite still says "yes" 54% of the time (real 64%); NLI says 0%. The model checks that *a* table is there and judges the claim's plausibility, not the claim against *this* table. A part of its 0.71 on TabFact is not table reading. Same pattern as ClapNQ (section 8), confirmed here (swap 0.54).
+- PAWS is left out: both sentences are in the state and the prompt is the same for every record, so neither test applies.
+- For Stage B and Phase 8: run the swap test on every source, including tables and synthetic data (todo, 2×2 passage-swap test); table data in Phase 4 must have positives and negatives on the same table (TabFact has both labels per table, so the shortcut is learned from the claims' wording; harder table negatives are needed).
 
 ## 7. Training dynamics
 
@@ -234,12 +309,12 @@ Option shuffling in training worked: the packed layout reads options in one sequ
 *Eval NLL on the fixed 2,000-record `test_in` subset. Bool and Choice keep improving to the end; Score bottoms out around step 12k and then rises.* Also in `docs/stage_a/training/`: accuracy and ECE per split, train loss, accuracy, learning rate and grad norm.
 
 - **Bool and Choice** improve through both epochs. Their gains in the second half are small: Bool `test_in` accuracy 0.868 at step 9k (the epoch boundary), 0.882–0.886 from 14k on.
-- **Score overfits in epoch 2.** Eval NLL/score drops to 0.87 at step 12k and rises to 1.03 by step 18k, while Bool and Choice are still improving. The cause:
+- **Score overfitting: not confirmed** (revised 2026-10-11). The curve below rests on 116 (`test_in`) and 81 (`test_ood`) Score records of the 2,000-record eval subset, too few to read a rise of 0.16 in NLL; the final Score numbers on all clean records (0.62 / 0.59) do not show a collapse. To be checked on the full `dev` Score set in the next run. The first reading was: eval NLL/score drops to 0.87 at step 12k and rises to 1.03 by step 18k, while Bool and Choice are still improving. The suspected cause:
   - Score is 30% of the mix, 90k records per epoch from a pool of 59k: 1.52× per epoch, ~3× per run.
   - HelpSteer2 rates every response on five attributes, so a response text comes back ~15 times over the run.
-  - **Decision (2026-10-10):** keep the 30% share. From Stage B on, every Score record is seen at most once per run (`run_repeat: {score: 1.0}`), and Score's share of the gradient is kept by the loss weights (score 1.41, choice 0.93, bool 0.98 on the Stage A mix). `build_mix.py --batch-size` measures them on the length-grouped batches (todo, Stage B).
+  - **Decision (2026-10-10, now provisional):** keep the 30% share. From Stage B on, every Score record is seen at most once per run (`run_repeat: {score: 1.0}`), and Score's share of the gradient is kept by the loss weights (score 1.41, choice 0.93, bool 0.98 on the Stage A mix). `build_mix.py --batch-size` measures them on the length-grouped batches (todo, Stage B). The HelpSteer2 ×5 text repeats stay as they are (todo Q5).
 - **Train vs eval:** in the last 2,750 steps train accuracy is Bool 0.911 / Choice 0.823, eval 0.882–0.886 / 0.824 on `test_in`. That is a small gap, except for Score.
-- **Grad norm 10–14 for the whole run, against a clip of 1.0:** every update was clipped, so the effective step is set by the clip, not by the learning rate. It trained well regardless. To look at before Stage B (cheap checks): the norm with AMP unscaling confirmed, per-layer norms, and a higher clip or a lower lr in a short run.
+- **Grad norm 10–14 for the whole run, against a clip of 1.0:** every update was clipped. *Revised 2026-10-11:* the logged norm is the true one (`scaler.unscale_` runs before `clip_grad_norm_`, `train.py`), but this is **not a problem for Adam**: dividing every gradient by a similar factor barely changes Adam's update, which is close to scale-invariant; the clip only re-weights steps inside the moment estimates when the norm varies. The first version's "the effective step is set by the clip, not by the learning rate" was wrong.
 - No time-outs: 566 minutes against the 690-minute limit, one session, no resume needed.
 
 ## 8. A data issue found: ClapNQ
@@ -257,6 +332,8 @@ jev-lite scores **1.000 on all 600 ClapNQ test records**, against 0.907 on Natur
 - Full account, checks and fix: `DATASETS.md` section 5.1.
 
 ## 9. Against the bars of `BASELINES.md` section 8
+
+*First-version table, unpaired, all records. The ✓ / ✗ marks are superseded by the paired verdicts of section 2a: on new sources the ContractNLI and FaithEval-counterfactual cells are losses and several are ties.*
 
 | Area | Bar (best baseline) | jev-lite | Met |
 |---|---|---|---|
@@ -283,19 +360,23 @@ The design consequences of `BASELINES.md` section 8, checked:
 1. **Domain shift is the main risk for the judge.** On ContractNLI the model is too strict. Stage B's synthetic data needs domain variety with held-out domains (Phase 4), and Phase 7/11 need a calibrator that can move the threshold, not only the temperature.
 2. **Data hygiene:** positives and negatives must come from the same passage pool (ClapNQ, section 8). Run the passage-swap test on every answerability source, synthetic ones included (todo Phase 4 and Phase 8).
 3. **Score recipe:** at most one pass per record per run, with compensating loss weights (section 7).
-4. **Confidence head (v2)** for the cascade (section 6.3).
+4. **Confidence head (v2)** for the cascade (section 6.3, revised: weak drop on shuffled text, poor calibration on new sources).
+7. **Refusals on new data:** FaithEval-unanswerable 0.49 (section 2a). Stage B needs unanswerable cases built by removing the answer from a passage that otherwise stays on topic (as FaithEval does), not only SQuAD 2.0 / NQ style negatives.
+8. **Tables:** TabFact is partly a shortcut (section 6.4); Phase 4 table data needs hard negatives on the same table.
 5. **Starting point:** Stage B starts from this checkpoint (or from `stage_a_nosa`, if it is trained and preferred; todo Phase 6).
 6. **Quota:** the Kaggle GPU quota is the constraint. Stage B with the Score cap is ~20% shorter per epoch, and dropping gradient checkpointing may save another 25–30% if memory allows (todo, status).
 
 ## 11. Caveats
 
-- **In-distribution training.** jev-lite saw the train splits of 25 of the 27 test sources; the baselines saw none (NLI saw MultiNLI, FEVER and WANLI). Per-source `test_in` numbers favour jev-lite. The held-out sources (ContractNLI, BANKING77, MultiNLI mismatched) and templates are the fair test.
-- **Passage overlap with train** is small for most sources but not zero: HelpSteer3 58% (shared conversation prefixes), BoolQ 29% (shared Wikipedia passages), NQ 11%, HoVer 6%, the rest ≤ 5%. The effect is mixed: on the overlapping records accuracy is higher for HelpSteer3 (+12 points), BoolQ, NQ and HoVer (+3–4), and lower for FEVER and HelpSteer2. It is not the source of the overall lead: the held-out sources show the same level (section 2).
-- **One run, one seed.** Bootstrap intervals cover test sampling, not training variance.
+- **In-distribution training.** jev-lite saw the train splits of 25 of the 27 test sources; the baselines saw none (NLI saw MultiNLI, FEVER and WANLI). Per-source `test_in` numbers favour jev-lite. The fair test is `test_ood_source` (section 2a), where the lead shrinks to 5–6 points and is not uniform.
+- **No trained-vs-trained control.** The baselines are zero-shot, so the comparison does not say what the packed architecture adds over fine-tuning any encoder on the same mix. Planned: pair mode (`encoding.mode: pair`) on the same mix, after `stage_a_nosa` (todo Q4).
+- **Passage overlap with train** (revised): with per-passage keys HoVer is ~28%, not 6% (shared Wikipedia intros); headline numbers are now on the clean sets (section 2a).
+- **One run, one seed.** Bootstrap intervals cover test sampling, not training variance; differences of a few points between runs need a second seed.
 - **No temperatures and no learned confidence** yet (Phases 7 and 2.8). The calibration numbers are raw.
-- **Probes** on a different 200-item sample than the baselines (section 6).
-- **Public proxies only.** Not the judge task itself: the offline judge benchmark (LLM-AggreFact, RAGTruth) is not converted yet, and our own data arrives in Phase 11.
-- **The intermediate eval curves** use a fixed 2,000-record subset per split (Score: 116 and 81 records), so Score points are noisy (±0.05). The final numbers use all records.
+- **Probes:** 200 items (Score: 8), one seed; the charts in `docs/stage_a/figures/` still show the first-version probes.
+- **Public proxies only.** Not the judge task itself: LLM-AggreFact is converted but gated (HF access pending), and our own data arrives in Phase 11.
+- **The intermediate eval curves** use a fixed 2,000-record subset per split (Score: 116 and 81 records), so Score points are noisy, and they were drawn from the test sets (removed from the clean sets).
+- **Not measured yet:** latency, the share of truncated contexts and accuracy by length, and the annotator-agreement ceiling for Score (todo, Stage A review).
 
 ## 12. Files and reproduction
 
@@ -316,6 +397,22 @@ uv run --extra reports python scripts/make_report.py compare --out docs/stage_a/
   --run nli=data/baselines/reports/nli/report.json --run laya=data/baselines/reports/laya/report.json --run jevlite=$R/report/report.json
 uv run --extra reports python scripts/make_baselines_figures.py --out docs/stage_a \
   --model jevlite $R/preds.jsonl $R/report/report.json $R/probes.json
+```
+
+Revised evaluation (2026-10-11):
+
+```
+C=data/mix/stage_a/clean; R=data/runs/stage_a-full-s42
+uv run python scripts/clean_eval.py --train data/mix/stage_a/train.e*.jsonl data/mix/stage_a_nosa/train.e*.jsonl \
+  --data data/mix/stage_a/test_in.jsonl data/mix/stage_a/test_ood.jsonl data/mix/stage_a/dev.jsonl \
+  --drop-eval-subset test_in test_ood \
+  --eval-subset-ref test_in=data/mix/stage_a/run_eval/test_in.jsonl test_ood=data/mix/stage_a/run_eval/test_ood.jsonl --out $C
+# predictions for the records added to test_ood (MMLU, FaithEval), per model: predict_baseline.py ... --data data/mix/stage_a/test_ood.jsonl --resume
+uv run python scripts/eval.py --data $C/test_in.jsonl $C/test_ood_source.jsonl $C/test_ood_template.jsonl --pred $R/preds.jsonl --out $R/report_clean --bootstrap 1000
+uv run python scripts/compare_paired.py --data $C/test_in.jsonl $C/test_ood_source.jsonl $C/test_ood_template.jsonl \
+  --model jevlite=$R/preds.jsonl --ref nli=data/baselines/preds/nli.jsonl --ref laya=data/baselines/preds/laya.jsonl --out $R/paired
+HF_HUB_OFFLINE=1 uv run python scripts/probe_blackbox.py --baseline jevlite --model $R/final --data $C/test_in.jsonl \
+  --out data/probes_2026-10-11/jevlite.json --n-items 200 --shortcuts 200   # the same for --baseline nli / laya
 ```
 
 The ContractNLI AUC and threshold table, the HoVer hop split, the per-label recalls, the passage-overlap check and the ClapNQ passage-swap test were computed ad hoc from `preds.jsonl`, the test files and the final model. They are not part of `eval.py`'s output; the swap test is planned for Phase 8.

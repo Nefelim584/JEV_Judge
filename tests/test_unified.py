@@ -24,7 +24,7 @@ def test_valid_records_and_questions():
 @pytest.mark.parametrize(
     "kw",
     [
-        {"split": "dev"},
+        {"split": "validation"},
         {"candidates": ["a"]},
         {"target": 1.5},
         {"target": [0.5, 0.5]},

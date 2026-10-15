@@ -5,6 +5,7 @@
 #   weight    share of the source inside its primitive, relative to its pool size (default 1)
 #   fit_only  keep only records whose state fits max_len untruncated (ratings)
 #   eval_cap  records kept per eval split (calib, test_in, test_ood) and source
+#   dev_cap   records per source in dev: the test_in pool after eval_cap (todo, Stage A review, Q1)
 
 dir: data/public
 tokenizer: answerdotai/ModernBERT-large
@@ -15,6 +16,7 @@ total: 300000               # training records per epoch
 primitive_weights: {bool: 0.5, choice: 0.2, score: 0.3}
 max_repeat: 2.0             # a pool may be repeated at most this many times per epoch
 eval_cap: 1000
+dev_cap: 500                # dev = mid-run eval and recipe choices; the tests are for the final eval only
 
 sources:
   # Bool / Choice-3 (NLI and fact checking: about half of each source is Bool, half Choice-3)
@@ -47,9 +49,13 @@ sources:
   # Choice K = 2: summary preferences
   summarize_from_feedback: {cap: 30000}
   # Score: rubric ratings; truncated states are dropped
-  helpsteer2: {fit_only: true}
-  helpsteer3: {fit_only: true}   # p50 state 1.7k tokens: few records fit 512 (mostly a Stage B source)
+  helpsteer2: {fit_only: true, dev_cap: 1500}   # Score needs hundreds of dev records (Stage A review)
+  helpsteer3: {fit_only: true, dev_cap: 1500}   # p50 state 1.7k tokens: few records fit 512 (mostly a Stage B source)
   # test_ood only (held out entirely)
   contract_nli: {eval_cap: 3000}
   banking77: {eval_cap: 3000}
+  # test_ood only, eval-only sources (todo, Stage A review, Q3): they land in test_ood_source
+  mmlu: {eval_cap: 3000}         # 14k test records, 57 subjects
+  faitheval: {eval_cap: 5000}    # all 3.5k (null would fall back to the mix eval_cap): unanswerable (Bool, all negative) + counterfactual (Choice)
+  # llm_aggrefact: {eval_cap: 5500}   # gated: enable after HF access is granted and the converter has run
 

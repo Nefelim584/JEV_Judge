@@ -1,6 +1,8 @@
 """The training loop on a tiny random ModernBERT (CPU, no downloads besides the cached tokenizer)."""
 
 import copy
+import json
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -10,7 +12,8 @@ from jevlite.checkpoint import CheckpointStore, load_final, load_trainable_state
 from jevlite.config import load_config
 from jevlite.data.unified import Record, load_predictions, write_jsonl
 from jevlite.model import JevLite
-from jevlite.train import length_grouped_batches, rank_batches, train
+from jevlite.data.public.base import stable_hash
+from jevlite.train import eval_subset, length_grouped_batches, rank_batches, train
 
 HIDDEN = 32
 
@@ -73,6 +76,7 @@ def setup(tmp_path):
     write_jsonl(mix / "train.e0.jsonl", _records("train", 48))
     write_jsonl(mix / "test_in.jsonl", _records("test_in", 9))
     write_jsonl(mix / "test_ood.jsonl", _records("test_ood", 6))
+    write_jsonl(mix / "dev.jsonl", _records("dev", 12))
     cfg = load_config("apple_silicon")
     cfg["runtime"] |= {"device": "cpu", "precision": "fp32", "attn_implementation": "sdpa", "optimizer": "adamw"}
     cfg["tuning"]["mode"] = "full"
@@ -111,7 +115,8 @@ def test_train_writes_logs_predictions_and_final_model(setup, tokenizer, tiny):
     _run(cfg, root, tokenizer, model, "run")
     run = root / "runs" / "run"
     metrics = (run / "metrics.jsonl").read_text().splitlines()
-    assert any('"phase": "eval"' in line and '"split": "test_ood"' in line for line in metrics)
+    evals = [json.loads(line) for line in metrics if '"phase": "eval"' in line]
+    assert evals and {e["split"] for e in evals} == {"dev"}  # the tests never take part in the periodic eval
     assert any('"loss/bool"' in line for line in metrics)
     preds = load_predictions(run / "preds.jsonl")
     assert len(preds) == 15  # all of test_in + test_ood, not the eval subset
@@ -197,3 +202,11 @@ def test_store_mirrors_to_hub_prunes_and_resumes_from_it(tmp_path, monkeypatch):
     path = fresh.latest()
     assert path == fresh.step_dir(30) / "state.pt" and torch.load(path)["step"] == 30
     assert fresh.restore_file("metrics.jsonl") and (fresh.dir / "metrics.jsonl").exists()
+
+
+def test_eval_subset_per_primitive():
+    recs = _records("dev", 30)  # 10 bool, 10 choice, 10 score
+    sub = eval_subset(recs, {"bool": 3, "score": 20}, 42)
+    assert Counter(r.type for r in sub) == {"bool": 3, "choice": 10, "score": 10}
+    assert eval_subset(recs, {"bool": 3}, 42) == eval_subset(recs, {"bool": 3}, 42)
+    assert [r.id for r in eval_subset(recs, 5, 42)] == [r.id for r in sorted(recs, key=lambda r: stable_hash(42, "eval", r.id))[:5]]
