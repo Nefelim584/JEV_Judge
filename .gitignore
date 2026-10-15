@@ -24,3 +24,9 @@ dataset_dicr.md
 
 # macOS
 .DS_Store
+
+# Local tooling and scratch files (kept on disk, not in the repo)
+.claude/
+Lecture5_gate_lab/
+main.py
+package-lock.json

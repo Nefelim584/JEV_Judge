@@ -1,6 +1,0 @@
-[project]
-name = "gate-lab"
-version = "0.1.0"
-description = "A gate before the shell: a decision read from next-token probabilities, measured on labelled commands"
-requires-python = ">=3.10"
-dependencies = []
