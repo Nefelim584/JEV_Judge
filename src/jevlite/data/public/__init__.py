@@ -10,6 +10,7 @@ from __future__ import annotations
 from .base import Converter
 from .eval_only import MMLU, FaithEval, LLMAggreFact
 from .classification import BANKING77, CLINC150, MASSIVE, DBpedia14, GoEmotions
+from .judge_bench import ContextualJudgeBench, FaithBench, HaluBench, RAGBench
 from .factcheck import FEVER, FEVEROUS, ContractNLI, HoVer, TabFact, VitaminC
 from .mcqa import ARC, CommonsenseQA, CosmosQA, OpenBookQA, SocialIQa
 from .nli import PAWS, QNLI, SNLI, WANLI, MultiNLI
@@ -29,6 +30,8 @@ CONVERTERS: dict[str, type[Converter]] = {
         ContractNLI, BANKING77,
         # test_ood only, eval-only sources (todo, Stage A review, Q3)
         LLMAggreFact, FaithEval, MMLU,
+        # judge benchmarks, eval only (DATASETS.md section 7)
+        ContextualJudgeBench, RAGBench, HaluBench, FaithBench,
     )
 }
 

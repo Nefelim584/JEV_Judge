@@ -51,6 +51,14 @@ ROWS = {
     "faitheval": ("test", {"task": "counterfactual", "idx": 0, "id": "Mercury_1", "question": "What melts ice?", "context": "Studies show cold melts ice.",
                            "choices": "{'label': ['A', 'B'], 'text': ['heat', 'cold']}", "answerKey": "B"}),
     "mmlu": ("test", {"idx": 0, "question": "2 + 2 =", "subject": "elementary_mathematics", "choices": ["3", "4", "5", "6"], "answer": 1}),
+    "contextual_judge_bench": ("faithfulness_qa", {"idx": 0, "problem_id": "p0", "question": "Who built it?", "context": "Ann built the bridge.",
+                                                   "positive_response": "Ann built it.", "negative_response": "Bo built it.", "source": "lfrqa"}),
+    "ragbench": ("test", {"subset": "hotpotqa", "idx": 0, "question": "Who built it?", "documents": ["Ann built the bridge.", ""],
+                          "response": "Bo built it.", "adherence_score": False, "generation_model_name": "gpt-3.5"}),
+    "halubench": ("test", {"idx": 0, "passage": "The Rams scored twice.", "question": "Who scored?", "answer": "['Rams', 'Chiefs']",
+                           "label": "FAIL", "source_ds": "DROP"}),
+    "faithbench": ("test", {"idx": 0, "source": "The film grossed $1 million.", "summary": "The film grossed $1 million.", "LLM": "m",
+                            "worst-label": "Benign", "best-label": "Consistent"}),
     "nq": ("train", {"id": 3, "question": "who wrote the book", "title": "The Book", "passage": "The Book is a novel by Ann Lee.", "answerable": True}),
 }
 
@@ -75,7 +83,8 @@ def test_convert_gives_valid_deterministic_records(name):
 
 
 def test_held_out_datasets_go_to_test_ood_only():
-    for name in ("contract_nli", "banking77", "llm_aggrefact", "faitheval", "mmlu"):
+    for name in ("contract_nli", "banking77", "llm_aggrefact", "faitheval", "mmlu",
+                 "contextual_judge_bench", "ragbench", "halubench", "faithbench"):
         split, row = ROWS[name]
         assert {r.split for r in get_converter(name).convert(row, split)} == {"test_ood"}
 
@@ -285,3 +294,29 @@ def test_eval_only_sources():
     assert un.type == "bool" and un.target == 0.0 and un.domain == "faitheval/unanswerable/squad" and un.split == "test_ood"
     (mm,) = get_converter("mmlu").convert(ROWS["mmlu"][1], "test")
     assert mm.candidates[mm.target] == "4" and mm.domain == "mmlu/elementary_mathematics"
+
+
+def test_judge_benchmarks():
+    split, row = ROWS["contextual_judge_bench"]
+    a, b = get_converter("contextual_judge_bench").convert(row, split)
+    assert a.group == b.group and a.criterion == "faithfulness" and a.domain == "cjb/faithfulness_qa"
+    for r in (a, b):  # the positive response is the target in both orders
+        assert r.type == "choice" and r.candidates == ["response 1", "response 2"]
+        assert f"Response {r.target + 1}:\nAnn built it." in r.state
+    summ = get_converter("contextual_judge_bench").convert(row, "conciseness_summ")
+    assert [r.candidates for r in summ] == [["summary 1", "summary 2"]] * 2 and summ[0].criterion == "conciseness"
+    assert get_converter("contextual_judge_bench").convert({**row, "negative_response": "Ann built it."}, split) == []
+
+    (rag,) = get_converter("ragbench").convert(*reversed(ROWS["ragbench"]))
+    assert rag.type == "bool" and rag.target == 0.0 and rag.state == ["Ann built the bridge."] and rag.domain == "ragbench/hotpotqa"
+    assert "Who built it?" in rag.prompt and rag.prompt.endswith("Bo built it.")
+
+    (halu,) = get_converter("halubench").convert(*reversed(ROWS["halubench"]))
+    assert halu.target == 0.0 and halu.prompt.endswith("is: Rams, Chiefs") and halu.domain == "halubench/drop"
+
+    fb = get_converter("faithbench")
+    (ok,) = fb.convert(ROWS["faithbench"][1], "test")
+    assert ok.target == 1.0 and ok.prompt == "The film grossed $1 million."
+    (bad,) = fb.convert({**ROWS["faithbench"][1], "worst-label": "Unwanted"}, "test")
+    assert bad.target == 0.0
+    assert fb.convert({**ROWS["faithbench"][1], "worst-label": "Questionable"}, "test") == []

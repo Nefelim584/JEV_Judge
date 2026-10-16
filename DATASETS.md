@@ -235,3 +235,19 @@ Checked on 2026-10-02 against the HF Hub API, the GitHub API (`license.spdx_id`)
 - **There is no clean three-way supported / contradicted / not-mentioned label at RAG sentence level.** TabFact and FaithEval-inconsistent cover contradiction only. The three-way label has to come from our synthetic data (Phase 4) and our own data (Phase 11).
 - **Few commercially clean refusals:** ClapNQ and SQuAD 2.0 / NQ (section 1). FaithEval stays eval-only.
 - **Unverified source terms:** AggreFact (Tang), the ASNQ data, BioASQ, OpenDialKG and Wizard of Wikipedia. Get legal sign-off before training on them.
+
+## 7. Judge benchmarks: eval only (approved 2026-10-16)
+
+Converters in `src/jevlite/data/public/judge_bench.py`; every record goes to `test_ood`, none to train or calib. Run on Kaggle with `notebooks/kaggle/30_judge_bench.ipynb`; report by `scripts/judge_bench_report.py`.
+
+| Benchmark | Source | Records | Mapping | License | Overlap with Stage A training |
+|---|---|---|---|---|---|
+| **ContextualJudgeBench** | `Salesforce/ContextualJudgeBench` | 2,000 pairs → 4,000 records | Choice K = 2, both responses in the state, both orders (`group` = pair): consistent accuracy | CC BY 4.0 | 7 pairs (QA-Feedback passages). MRQA (SQuAD, NQ) is inside, but no passage matched our mix |
+| **RAGBench** | `galileo-ai/ragbench` (formerly `rungalileo/ragbench`), 12 test splits | 11,802 | Bool "the response is supported by the documents" (`adherence_score`) | CC BY 4.0; msmarco subset NC (MS MARCO terms) | 31 records |
+| **HaluBench** | `PatronusAI/HaluBench` | 14,900 | Bool PASS / FAIL | **CC BY-NC 2.0** | 4 records |
+| **FaithBench** | GH `vectara/FaithBench@cf89797`, `FaithBench.csv` | 723 of 800 | Bool by `worst-label`: Unwanted → 0, Consistent / Benign → 1, Questionable left out | **CC BY-NC-SA 4.0** | none |
+
+- **Eval only, never trained on** (user, 2026-10-16): the NC licenses allow internal evaluation, not training.
+- **RAGBench labels come from GPT-4o** (responses from LLMs too): it measures agreement with an LLM judge, not with people.
+- **Length:** most records exceed 512 tokens (CJB 52–88% per split, RAGBench 39–100% per subset, HaluBench CovidQA 100%). jev-lite runs at 512 (truncated) and at 8192 (untruncated, beyond its training length); NLI and Laya at 512.
+- **Excluded from the report:** the 49 record ids in `docs/judge_bench/overlap_ids.txt` (passage overlap with `stage_a` and `stage_a_nosa` training files, `prefix` mode; CJB checked per passage of its concatenated contexts).

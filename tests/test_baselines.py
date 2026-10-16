@@ -186,8 +186,10 @@ def test_nli_fp16_is_cuda_only_and_baseline_flags_are_nli_only():
         NLIZeroShot(model=_FakeNLI(), tokenizer=_FakeTok(), device="cpu", fp16=True)
     nli = NLIZeroShot(model=_FakeNLI(), tokenizer=_FakeTok(), device="cpu", batch_size=64)
     assert nli.batch_size == 64 and not nli.fp16 and nli.name.endswith("+fp16") is False
-    with pytest.raises(ValueError, match="nli baseline only"):
+    with pytest.raises(ValueError, match="--fp16 to nli and jevlite"):
         load_baseline("laya", fp16=True)
+    with pytest.raises(ValueError, match="CUDA only"):  # checked before the model folder is read
+        load_baseline("jevlite", "no/such/final", device="cpu", fp16=True)
 
 
 class _LenFakeNLI(_FakeNLI):
