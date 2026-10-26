@@ -26,7 +26,8 @@ sources:
     cap: 60000
   # the Stage A test sets and dev, whole and unchanged: Stage A → B forgetting is measured on them
   stage_a_eval:
-    path: ["$STAGE_A_MIX/test_in.jsonl", "$STAGE_A_MIX/test_ood.jsonl", "$STAGE_A_MIX/dev.jsonl"]
+    # dev*.jsonl: optional, the Kaggle copy of jevlite-mix predates the dev split (todo, 2026-10-11 upload)
+    path: ["$STAGE_A_MIX/test_in.jsonl", "$STAGE_A_MIX/test_ood.jsonl", "$STAGE_A_MIX/dev*.jsonl"]
     eval_cap: 1000000
     dev_cap: 3000
 

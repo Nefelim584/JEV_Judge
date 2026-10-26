@@ -293,7 +293,8 @@ class Qasper(Converter):
     splits = {"train": "train", "validation": "test_in"}
 
     def rows(self, source_split: str) -> Iterator[dict]:
-        yield from hf_rows("allenai/qasper", None, source_split, self.streaming)
+        # the repo still has a loading script, which `datasets` no longer runs: read HF's parquet export
+        yield from hf_rows("allenai/qasper", "qasper", source_split, self.streaming, parquet_export=True)
 
     def convert(self, row: dict, source_split: str) -> Iterable[Record]:
         paragraphs = [p.strip() for sec in row["full_text"]["paragraphs"] for p in sec if p and len(p.split()) >= 20]

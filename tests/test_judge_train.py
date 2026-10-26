@@ -53,6 +53,9 @@ def test_numeric_negative_is_wrong_and_looks_alike():
         assert kind in ("other_value", "shift") and text.endswith("%") and text != "14.1%"
         assert abs(parse_number(text) - 14.1) > 0.05
     assert numeric_negative(rng_for("t"), "Leeds", ["1"]) is None
+    for i in range(100):   # another value of the document only when it is of the same order of magnitude
+        text, kind = numeric_negative(rng_for("m", i), "2.6%", ["22840", "3.1"])
+        assert kind == "shift" or text == "3.1%"
     for i in range(50):
         year, _ = numeric_negative(rng_for("y", i), "1979", ["1981", "300"])
         assert year != "1979" and 1960 < int(year) < 2000

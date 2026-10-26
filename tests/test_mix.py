@@ -241,7 +241,8 @@ def test_replay_reads_an_earlier_mix(tmp_path, monkeypatch):
     sources = {
         "b1": {"share_alike": False},
         "replay": {"path": ["$OLD_MIX/train.e0.jsonl", "$OLD_MIX/train.e1.jsonl"], "cap": 40},
-        "replay_eval": {"path": ["$OLD_MIX/test_in.jsonl", "$OLD_MIX/dev.jsonl"], "eval_cap": 10**6},  # null = the mix cap
+        "replay_eval": {"path": ["$OLD_MIX/test_in.jsonl", "$OLD_MIX/dev*.jsonl", "$OLD_MIX/calib*.jsonl"],  # calib*: no match, fine
+                        "eval_cap": 10**6},  # null = the mix cap
     }
     pools = build_pools(_cfg(tmp_path, sources, weights={"bool": 1.0}, eval_cap=10, dev_cap=2))
     assert pools.available["replay"] == 51 and len(pools.train[("replay", "bool")]) == 40   # 50 unique + 1, capped

@@ -36,7 +36,8 @@ are left out of ``train`` and ``calib``, the splits that fit parameters. ``test_
 keep them, so both versions are compared on the same test sets.
 
 ``path`` (per source) reads the records from the given files instead of ``<dir>/<name>.jsonl``: a list
-of paths, relative to ``dir`` or absolute, ``$VARS`` expanded. It replays an earlier mix (todo Phase
+of paths, relative to ``dir`` or absolute, ``$VARS`` expanded, globs allowed (a glob may match nothing,
+a plain path must exist). It replays an earlier mix (todo Phase
 4b): its ``train.e*.jsonl`` as a training pool, its test files as eval records. Records keep their own
 ``source`` (the share-alike check uses it), a record that occurs in several files is kept once, and
 ``dev`` records are taken as they are (capped by ``dev_cap`` when set) instead of being carved from
@@ -51,6 +52,7 @@ a 16 GB laptop.
 
 from __future__ import annotations
 
+import glob
 import heapq
 import json
 import math
@@ -93,9 +95,16 @@ class SourceSpec:
         return CONVERTERS[name].is_share_alike(domain)
 
     def files(self, base: Path) -> list[Path]:
+        """The files to read. A ``path`` entry with ``*``, ``?`` or ``[`` is a glob and may match nothing
+        (an optional file, e.g. a ``dev.jsonl`` that an older mix lacks); a plain entry must exist."""
         if not self.path:
             return [base / f"{self.name}.jsonl"]
-        return [p if (p := Path(os.path.expandvars(x))).is_absolute() else base / p for x in self.path]
+        out: list[Path] = []
+        for entry in self.path:
+            p = Path(os.path.expandvars(entry))
+            p = p if p.is_absolute() else base / p
+            out += sorted(Path(x) for x in glob.glob(str(p))) if glob.has_magic(str(p)) else [p]
+        return out
 
 
 @dataclass(frozen=True)

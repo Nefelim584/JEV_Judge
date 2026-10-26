@@ -118,7 +118,8 @@ def numeric_negative(rng: random.Random, answer: str, pool: Sequence[str]) -> tu
     others = []
     for p in pool:
         v = parse_number(p)
-        if v is not None and not _close(v, a) and format_like(v, answer) != answer:
+        # same order of magnitude: "22840.0%" for an average of percentages is wrong without reading the table
+        if v is not None and not _close(v, a) and format_like(v, answer) != answer and (a == 0 or 0.1 <= abs(v / a) <= 10):
             others.append(v)
     if others and rng.random() < 0.6:
         return format_like(rng.choice(others), answer), "other_value"
@@ -454,7 +455,7 @@ class FinQAJudge(Converter):
 
     def convert(self, row: dict, source_split: str) -> Iterable[Record]:
         qa = row.get("qa") or {}
-        question = (qa.get("question") or "").strip()
+        question = re.sub(r"(?:\\n|\s)+$", "", qa.get("question") or "").strip()   # some end in a literal "\n"
         answer = str(qa.get("answer") or "").strip()
         if not answer and isinstance(qa.get("exe_ans"), (int, float)):
             answer = f"{qa['exe_ans']:.4f}".rstrip("0").rstrip(".")
