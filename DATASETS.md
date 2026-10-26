@@ -1,6 +1,6 @@
 # Public datasets: candidates and licenses
 
-> **Status:** the Stage A list is approved (section 0, 2026-10-02). Sections 1–6 hold all the candidates and the license checks behind it.
+> **Status:** the Stage A list is approved (section 0, 2026-10-02). Sections 1–6 hold all the candidates and the license checks behind it. Section 7: judge benchmarks (eval). **Section 8: Stage B public judge data, option B (decided 2026-10-26; new sources pending license checks).**
 >
 > Licenses were checked on 2026-10-02 against the HF Hub API (`cardData.license`), HF cards, and the original repos and project pages.
 > - "Commercial" assumes the model may ship inside a commercial product.
@@ -14,7 +14,7 @@
 
 Decisions:
 - **Share-alike (CC BY-SA) datasets are in.** Legal confirmed on 2026-10-07 that SA data may be used. As a precaution there are two Stage A versions: with SA (`stage_a`) and without (`stage_a_nosa`, where Bool leans on MultiNLI, PAWS, TabFact and WANLI plus synthetic data); todo Phase 3.
-- **LLM-generated data: WANLI only** (GPT-3 wrote the pairs; humans labelled and revised them). RAGBench, MiniCheck C2D/D2C, UltraFeedback and Prometheus stay out of Stage A (ablations, section 2).
+- **LLM-generated data: WANLI only** (GPT-3 wrote the pairs; humans labelled and revised them). RAGBench, MiniCheck C2D/D2C, UltraFeedback and Prometheus stay out of Stage A (ablations, section 2). *Stage B (2026-10-26) admits LLM-labelled judge data: section 8.*
 - **3-way NLI and fact-checking sets go in both as Bool and as Choice.** FEVER, VitaminC, HoVer, FEVEROUS, MultiNLI, SNLI and WANLI: each example is used either as Bool (entailed vs not) or as Choice `supported / contradicted / not mentioned`, about 50/50 per dataset, never both. This gives data for the open decision on the faithfulness label (todo section 7).
 - **Mix by primitive: Bool 50%, Choice 20%, Score 30%.** Score has little variety (HelpSteer2/3), so vary the rubric wording and the number of levels in the templates, and cap upsampling (per-dataset caps are set in the mix config, Phase 3).
 - **`test_ood` (public data): ContractNLI and BANKING77 are held out entirely.** No training on them.
@@ -199,7 +199,7 @@ Checked on 2026-10-02 against the HF Hub API, the GitHub API (`license.spdx_id`)
 
 | Dataset | HF id / repo | Size | Labels | License | Note |
 |---|---|---|---|---|---|
-| **RAGBench** | `galileo-ai/ragbench` | ~100k, 12 subsets | response sentence → context sentence keys; relevance, utilization, adherence, completeness; **GPT-4** | CC BY 4.0 (HF); the GH repo has no license file | Closest in shape to criterion A (sentence level, several chunks, tables). **Drop the msmarco subset** (MS MARCO is NC) and check each subset's source terms. |
+| **RAGBench** | `galileo-ai/ragbench` | ~100k, 12 subsets | response sentence → context sentence keys; relevance, utilization, adherence, completeness; **GPT-4** | CC BY 4.0 (HF); the GH repo has no license file | Closest in shape to criterion A (sentence level, several chunks, tables). **Drop the msmarco subset** (MS MARCO is NC) and check each subset's source terms. **Stage B: train/validation of 7 subsets (section 8).** |
 | rag-bioasq (TinyLettuce) | `KRLabsOrg/rag-bioasq-lettucedetect` | 3k / 0.6k | span level, LLM-synthetic | MIT (HF); BioASQ terms unverified | Optional. |
 | HaluEval | `pminervini/HaluEval` | 10k × QA / dialogue / summ | answer level; ChatGPT-generated hallucinations | HF Apache-2.0 vs GH MIT | Seeds from HotpotQA, CNN/DM and OpenDialKG; easy and full of artefacts. Skip, or use a little. |
 
@@ -238,7 +238,7 @@ Checked on 2026-10-02 against the HF Hub API, the GitHub API (`license.spdx_id`)
 
 ## 7. Judge benchmarks: eval only (approved 2026-10-16)
 
-Converters in `src/jevlite/data/public/judge_bench.py`; every record goes to `test_ood`, none to train or calib. Run on Kaggle with `notebooks/kaggle/30_judge_bench.ipynb`; report by `scripts/judge_bench_report.py`.
+Converters in `src/jevlite/data/public/judge_bench.py`; every record goes to `test_ood`, none to train or calib. Run on Kaggle with `notebooks/kaggle/30_judge_bench.ipynb`; report by `scripts/judge_bench_report.py`. Results: [`JUDGE_BENCH.md`](JUDGE_BENCH.md).
 
 | Benchmark | Source | Records | Mapping | License | Overlap with Stage A training |
 |---|---|---|---|---|---|
@@ -247,7 +247,67 @@ Converters in `src/jevlite/data/public/judge_bench.py`; every record goes to `te
 | **HaluBench** | `PatronusAI/HaluBench` | 14,900 | Bool PASS / FAIL | **CC BY-NC 2.0** | 4 records |
 | **FaithBench** | GH `vectara/FaithBench@cf89797`, `FaithBench.csv` | 723 of 800 | Bool by `worst-label`: Unwanted → 0, Consistent / Benign → 1, Questionable left out | **CC BY-NC-SA 4.0** | none |
 
-- **Eval only, never trained on** (user, 2026-10-16): the NC licenses allow internal evaluation, not training.
+- **Eval only, never trained on** (user, 2026-10-16): the NC licenses allow internal evaluation, not training. *Revised 2026-10-26 for RAGBench only (CC BY 4.0): its train/validation splits of 7 subsets go into Stage B; its test splits stay eval, and those 7 become an in-distribution slice (section 8). CJB, HaluBench and FaithBench stay eval only.*
 - **RAGBench labels come from GPT-4o** (responses from LLMs too): it measures agreement with an LLM judge, not with people.
 - **Length:** most records exceed 512 tokens (CJB 52–88% per split, RAGBench 39–100% per subset, HaluBench CovidQA 100%). jev-lite runs at 512 (truncated) and at 8192 (untruncated, beyond its training length); NLI and Laya at 512.
 - **Excluded from the report:** the 49 record ids in `docs/judge_bench/overlap_ids.txt` (passage overlap with `stage_a` and `stage_a_nosa` training files, `prefix` mode; CJB checked per passage of its concatenated contexts).
+
+## 8. Stage B: public judge data, option B (decided 2026-10-26)
+
+**Why.** Generating 20k synthetic cases locally (Qwen3.5-4B, llama.cpp, M1 Pro 16 GB) would take about a week, and the free GPU quotas are kept for training. Stage B takes what public data gives, built into judge records by code; synthetic generation (todo Phase 4) comes back later as a small top-up. Plan and checklist: todo Phase 4b.
+
+**Option B** (chosen over option A, which kept the eval untouched): besides the code-built and new sources, Stage B trains on **RAGBench train/validation of 7 subsets**, the only open source of real LLM answers over several documents with sentence-level support labels. The price is a smaller OOD part of the eval (section 8.4). **Rollback:** if Stage B is worse than Stage A on the held-out slice of eval v2, go back to the Stage A checkpoint and investigate there.
+
+### 8.1 Built by code from sources already approved
+
+No new license questions; each needs a converter (`src/jevlite/data/public/`).
+
+| Source | What we build | Gap it targets (`JUDGE_BENCH.md`, `STAGE_A.md`) |
+|---|---|---|
+| HotpotQA (distractor setting) | 10 paragraphs as chunks; "the answer to Q is A" supported only by the chunks together; negatives with the answer swapped for an entity of a distractor paragraph; **answerability** by dropping one gold paragraph while the on-topic distractors stay | claims across chunks; refusals on on-topic passages (FaithEval-unanswerable 0.49, CJB 0.28) |
+| TAT-QA, FinQA | claims with the computed answer as positives; negatives with another number of the same table, a scale error or a small shift | tables and derived numbers (RAGBench FinQA 4% "supported"); the TabFact passage-swap shortcut |
+| SQuAD 2.0, NQ, ClapNQ | relevance: the answer to a neighbouring question on the same passage → `does not address`; two questions joined, one answered → `partially addresses` | criterion (b), weakest primitive (HelpSteer2 ~0.5) |
+| NQ, ClapNQ | conciseness pairs: gold answer vs gold plus irrelevant sentences from the same page | length bias (CJB conciseness 0.10 at 8192) |
+| ClapNQ | the fix of section 5.1 (same passage, another page's question as the negative) | the passage shortcut |
+
+HotpotQA, FinQA and TAT-QA are also RAGBench subsets; that is one reason those subsets move to the in-distribution slice (8.4).
+
+### 8.2 New sources: license and format check (2026-10-26)
+
+Checked against the HF Hub API (`cardData.license`), the GitHub API (`license.spdx_id`), the dataset cards / READMEs and the papers. Each source still needs the user's OK before its converter is written. Verdict: ✅ use, ⚠️ use with the condition in the note, ❌ out.
+
+**Approved by the user (2026-10-26):** all ✅ sources; MiniCheck **C2D and D2C** (D2C news documents accepted; WiCE claims matching LLM-AggreFact dropped); RAGTruth summarisation, **CNN/DM sources only** ("Recent News" out); Trust-Data **without its ELI5 part**, identified by matching questions to the source sets (if that cannot be done cleanly, Trust-Data is left out). ConditionalQA is out.
+
+| Source | License (where checked) | Size | Format and labels | Verdict |
+|---|---|---|---|---|
+| **RAGBench**, train + validation of hotpotqa, finqa, tatqa, hagrid, expertqa, techqa, pubmedqa | dataset CC BY 4.0 (HF). Sources: HotpotQA CC BY-SA 4.0, FinQA MIT / CC BY 4.0, TAT-QA CC BY 4.0, HAGRID Apache-2.0 (GH, HF), ExpertQA MIT, TechQA Apache-2.0 (GH `IBM/techqa`), PubMedQA MIT (GH) | 74.9k: tatqa 29.8k, pubmedqa 22.1k, finqa 14.3k, hagrid 3.2k, hotpotqa 2.3k, expertqa 1.8k, techqa 1.5k | question, documents, LLM response (`generation_model_name`), GPT-4 labels: `sentence_support_information` (response sentence → supporting document sentences), adherence, relevance, utilization | ✅ **Cap tatqa / pubmedqa / finqa** (85% of the rows). Responses come from commercial LLMs: the provider-terms caveat of section 5 applies, as for every LLM-made set |
+| **Faithfulness-QA** (GH `qzhangFDU/faithfulness-qa-dataset`, HF `Laurie/faithfulness-qa-dataset`) | MIT (HF card, README badge); **no LICENSE file in the GH repo**. Sources: SQuAD (CC BY-SA 4.0), TriviaQA (Wikipedia evidence) | 99.1k: 79.3k / 9.9k / 9.9k (SQuAD 49.1k, TriviaQA 50k) | JSONL: question, `original_context`, modified context, original and substituted answer, entity type; deterministic rule-based substitution, no LLM | ✅ SA is approved (section 0). Passage overlap with CJB's MRQA part goes through the overlap filter |
+| **MiniCheck C2D / D2C** (`lytang/C2D-and-D2C-MiniCheck`) | MIT (HF card); code Apache-2.0 (GH) | 14.4k: C2D 7,076, D2C 7,319 | claim, doc, label 0/1. C2D: ~400 Wikipedia claims with cited web articles (WiCE, Kamoi et al. 2023; Petroni et al. 2023), documents written by GPT; D2C: ~300 scraped Google News articles (from Nov 2023), claims by GPT | ⚠️ **WiCE is inside LLM-AggreFact** (our eval): check claim overlap and drop matches; D2C documents are third-party news (same copyright class as CNN/DM): take D2C only with the user's OK |
+| **Trust-Data** (`declare-lab/Trust-Data`) | Apache-2.0 (HF). Sources: ASQA Apache-2.0, QAMPARI CC0-1.0 (GH), ExpertQA MIT, **ELI5: no license** (GH NOASSERTION, HF unknown; Reddit questions) | DPO 15.6k / 1.7k pairs; SFT 8.9k; Trust-Score eval 5.1k (question, answers, docs) | prompt with the retrieved documents, `chosen` / `rejected`; a refusal is `chosen` when the documents do not answer | ⚠️ Rows do not carry their source: drop **ELI5** by matching questions to the source sets, else leave Trust-Data out. ASQA overlaps CJB's QA-Feedback part (ASQA-based) and ExpertQA LLM-AggreFact: overlap filter + "seen source" flag. Use as Choice K = 2 (faithful / refusal-correct answer) and as answerability |
+| **PsiloQA**, English part (`s-nlp/PsiloQA`) | CC BY 4.0 (HF); Wikipedia passages CC BY-SA | English 16.1k / 0.9k / 1.1k (of 63.8k / 3.4k / 2.9k, 14 languages) | Wikipedia passage, question and golden answer (GPT-4o), answer of one of 24 open LLMs **written without the passage**, hallucinated spans by GPT-4o (alignment with the golden answer) | ✅ with a label-noise flag: spans mark deviation from the golden answer, not from the passage, and do not separate contradicts from silent → Bool only, sentence with a span → 0 |
+| **Qasper** (`allenai/qasper`) | CC BY 4.0 (HF) | 888 / 281 / 416 papers (~5k questions) | full paper text, questions, several annotator answers with evidence paragraphs, `unanswerable` flag | ✅ small; research-paper domain and human answerability |
+| **ConditionalQA** (GH `haitian-sun/ConditionalQA`) | **no license**; README: "should ONLY be used for NLP research purpose" | — | — | ❌ Same status as FaithEval. The government domain with conditions stays a gap (Phase 4 top-up, e.g. from OGL-licensed gov.uk pages) |
+| **RAGTruth**, summarisation part (GH `ParticleMedia/RAGTruth`) | MIT (GH). Sources: CNN/DM (628 articles) and scraped "Recent News" (315) | train 4,758 responses (1,482 with hallucinations), test 900 | response with human spans: Evident / Subtle Conflict (→ contradicts), Evident / Subtle Baseless Info (→ silent), `implicit_true` (true but not in the source → silent) | ⚠️ News copyright as for D2C: CNN/DM is the standard summarisation corpus, "Recent News" is unclear → CNN/DM only, with the user's OK. **HaluBench's RAGTruth subset is the QA part (MS MARCO passages)**, so no HaluBench records are cut |
+
+- **Label noise:** RAGBench, MiniCheck and PsiloQA are LLM-labelled. Keep `label_source` per record and report Stage B per source.
+- **Answerability sources** (HotpotQA construction, Trust-Data, Qasper) must pass the 2×2 passage-swap test (section 5.1) before they enter the mix.
+
+### 8.3 Never trained on
+
+CJB, HaluBench (NC), FaithBench (NC), FaithEval (research only), LLM-AggreFact (TofuEval inside: "should not be used in training"), RAGBench msmarco (NC), and the RAGBench test splits of all subsets.
+
+### 8.4 eval v2: what we cut and how the dynamics stay comparable
+
+| Eval set | Status from Stage B on |
+|---|---|
+| CJB, FaithBench | unchanged, held-out slice; CJB's QA-Feedback (ASQA) part flagged "seen source" if Trust-Data's ASQA part is trained |
+| HaluBench | held-out slice; the pubmedqa part flagged "seen source" (RAGBench pubmedqa is trained). Its RAGTruth subset is the QA (MS MARCO) part, so training on the RAGTruth summaries cuts nothing |
+| RAGBench test: covidqa, cuad, emanual, delucionqa | held-out slice (never trained) |
+| RAGBench test: hotpotqa, finqa, tatqa, hagrid, expertqa, techqa, pubmedqa | **in-distribution slice**, reported separately, no longer OOD |
+| RAGBench test: msmarco | unchanged (never trained) |
+| LLM-AggreFact | held-out; the ExpertQA part flagged "seen source"; WiCE claims checked against MiniCheck C2D |
+| Stage A `test_in` / `test_ood` | unchanged (Stage A sources stay in the mix as replay) |
+
+- **The record list of eval v2 is frozen before Stage B trains** (`docs/judge_bench/eval_v2/`, built by `scripts/make_eval_v2.py`; Stage A baseline in `JUDGE_BENCH.md` section 9), together with the passage overlap of the Stage B training files (`data/overlap.py`, `prefix` mode).
+- **Stage A is re-scored on eval v2 from its saved predictions** (`judge_bench_report.py --exclude …`, no GPU), and so are NLI and Laya. Every later stage is compared on the same records.
+

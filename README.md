@@ -35,6 +35,7 @@ The lead is large on trained sources and shrinks on new ones, where calibration 
 |---|---|
 | [`STAGE_A.md`](STAGE_A.md) | Stage A vs the baselines: per source, calibration, selective prediction, probes, limitations |
 | [`STAGE_A_API.md`](STAGE_A_API.md) | Stage A vs the JEV API, latency |
+| [`JUDGE_BENCH.md`](JUDGE_BENCH.md) | Stage A on four judge benchmarks (ContextualJudgeBench, RAGBench, HaluBench, FaithBench), 512 vs 8192 tokens |
 | [`BASELINES.md`](BASELINES.md) | Zero-shot baselines and the test sets |
 | [`DATASETS.md`](DATASETS.md) | Dataset candidates and license checks |
 | [`judge_labeling_guide.md`](judge_labeling_guide.md) | Labelling guide for the judge data |

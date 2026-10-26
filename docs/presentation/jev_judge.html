@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JEV as a Judge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f6f5f1; --slide:#ffffff; --ink:#15171c; --muted:#5e6470; --faint:#e7e5df; --line:#d6d3cb;
+  --accent:#d9480f; --accent-soft:#fde8dc;
+  --jev:#e8a317; --lite:#2f9e44; --nli:#868e96; --laya:#4c6ef5;
+  --good:#2f9e44; --bad:#c92a2a;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e0f12; --slide:#17191e; --ink:#eceef2; --muted:#9aa1ad; --faint:#23262d; --line:#323640;
+    --accent:#ff7a3d; --accent-soft:#3a2016;
+    --jev:#f2b632; --lite:#51cf66; --nli:#868e96; --laya:#748ffc; --good:#51cf66; --bad:#ff6b6b;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e0f12; --slide:#17191e; --ink:#eceef2; --muted:#9aa1ad; --faint:#23262d; --line:#323640;
+  --accent:#ff7a3d; --accent-soft:#3a2016;
+  --jev:#f2b632; --lite:#51cf66; --nli:#868e96; --laya:#748ffc; --good:#51cf66; --bad:#ff6b6b;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,sans-serif;overflow:hidden}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace}
+
+#stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+#deck{width:1280px;height:720px;position:relative;transform-origin:center center}
+.slide{position:absolute;inset:0;background:var(--slide);border-radius:18px;padding:64px 80px;display:none;flex-direction:column;
+  box-shadow:0 10px 40px rgba(0,0,0,.08)}
+.slide.active{display:flex}
+
+.kicker{font-size:15px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+h1{font-size:68px;line-height:1.04;font-weight:800;letter-spacing:-.02em}
+h2{font-size:44px;line-height:1.1;font-weight:750;letter-spacing:-.015em;margin-bottom:36px}
+h3{font-size:22px;font-weight:700;margin-bottom:8px}
+p,li{font-size:22px;line-height:1.45;color:var(--muted)}
+.lead{font-size:26px;color:var(--muted);max-width:900px}
+b,strong{color:var(--ink);font-weight:650}
+.foot{position:absolute;left:80px;right:80px;bottom:28px;display:flex;justify-content:space-between;font-size:14px;color:var(--muted)}
+
+/* section dividers */
+.divider{justify-content:center;background:var(--ink);color:var(--slide)}
+.divider .num{font-size:180px;font-weight:800;line-height:1;color:var(--accent);margin-bottom:10px}
+.divider h1{color:var(--slide)}
+.divider .lead{color:color-mix(in srgb,var(--slide) 65%,transparent);margin-top:18px}
+
+/* generic grid of cards */
+.grid{display:grid;gap:22px}
+.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+.card{background:var(--faint);border-radius:14px;padding:24px 26px}
+.card p{font-size:19px}
+.card .ico{font-size:30px;margin-bottom:10px}
+.big{font-size:56px;font-weight:800;color:var(--ink);letter-spacing:-.02em;line-height:1}
+.big small{font-size:22px;font-weight:600;color:var(--muted)}
+.tag{display:inline-block;font-size:13px;font-weight:600;padding:3px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent);margin-top:12px}
+
+/* flow diagram */
+.flow{display:flex;align-items:stretch;gap:18px}
+.box{border:2px solid var(--line);border-radius:14px;padding:20px 22px;background:var(--slide)}
+.box h3{font-size:18px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px}
+.arrow{align-self:center;font-size:36px;color:var(--accent)}
+.code{font-family:"JetBrains Mono",monospace;font-size:16px;line-height:1.6;color:var(--ink)}
+.prim{display:flex;justify-content:space-between;gap:16px;padding:10px 0;border-bottom:1px solid var(--line);font-size:18px}
+.prim:last-child{border:0}
+.prim span:first-child{font-weight:700;color:var(--ink);font-family:"JetBrains Mono",monospace}
+.prim span:last-child{color:var(--muted)}
+
+/* unknown list */
+.unknown{display:grid;grid-template-columns:1fr 1fr;gap:14px 40px;margin-top:6px}
+.unknown div{font-size:24px;color:var(--ink);display:flex;gap:14px;align-items:center}
+.unknown div::before{content:"?";flex:none;width:34px;height:34px;border-radius:50%;background:var(--accent-soft);color:var(--accent);
+  font-weight:800;display:flex;align-items:center;justify-content:center;font-size:18px}
+
+/* versus table */
+.vs{display:grid;grid-template-columns:220px 1fr 1fr;border-radius:14px;overflow:hidden;border:1px solid var(--line)}
+.vs div{padding:15px 22px;font-size:20px;border-bottom:1px solid var(--line);color:var(--muted)}
+.vs .h{font-weight:700;color:var(--ink);background:var(--faint);font-size:18px;text-transform:uppercase;letter-spacing:.06em}
+.vs .r{font-weight:600;color:var(--ink)}
+.vs .win{color:var(--good);font-weight:650}
+.vs > div:nth-last-child(-n+3){border-bottom:0}
+
+/* matrix */
+.matrix{border-collapse:collapse;font-family:"JetBrains Mono",monospace;font-size:17px}
+.matrix th{font-weight:600;color:var(--muted);padding:8px 14px}
+.matrix td{padding:10px 14px;text-align:center;color:var(--muted)}
+.matrix td.hi{background:var(--accent-soft);color:var(--ink);font-weight:700;border-radius:6px}
+.matrix td.ok{color:var(--good);font-weight:700}.matrix td.no{color:var(--bad);font-weight:700}
+
+/* bar chart */
+.legend{display:flex;gap:22px;font-size:16px;color:var(--muted);margin-bottom:18px}
+.legend i{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:8px;vertical-align:-2px}
+.chart{display:grid;grid-template-columns:repeat(var(--cols),1fr);gap:26px;height:360px;align-items:end}
+.group{display:flex;flex-direction:column;height:100%}
+.bars{flex:1;display:flex;align-items:flex-end;gap:6px;border-bottom:2px solid var(--line);padding:0 6px}
+.bar{flex:1;border-radius:5px 5px 0 0;position:relative;min-height:2px}
+.bar span{position:absolute;top:-24px;left:50%;transform:translateX(-50%);font-size:14px;font-weight:600;color:var(--ink);white-space:nowrap}
+.glabel{text-align:center;font-size:16px;color:var(--muted);margin-top:10px;line-height:1.3}
+.glabel b{display:block;font-size:17px}
+
+/* architecture */
+.arch{display:flex;flex-direction:column;align-items:center;gap:10px}
+.arch .layer{width:100%;text-align:center;border-radius:12px;padding:14px;font-size:19px;font-weight:600}
+.arch .enc{background:var(--ink);color:var(--slide);padding:22px}
+.arch .heads{display:flex;gap:12px;width:100%}
+.arch .heads div{flex:1;text-align:center;border:2px solid var(--accent);border-radius:12px;padding:12px;font-family:"JetBrains Mono",monospace;font-size:17px;color:var(--accent);font-weight:600}
+.arch .down{color:var(--muted);font-size:20px}
+
+/* timeline */
+.road{display:grid;grid-template-columns:repeat(5,1fr);gap:0;position:relative;margin-top:10px}
+.road::before{content:"";position:absolute;left:0;right:0;top:19px;height:3px;background:var(--line)}
+.step{position:relative;padding-right:18px}
+.dot{width:40px;height:40px;border-radius:50%;background:var(--slide);border:3px solid var(--line);position:relative;z-index:1;margin-bottom:18px;
+  display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;color:var(--muted)}
+.step.done .dot{background:var(--good);border-color:var(--good);color:#fff}
+.step.now .dot{border-color:var(--accent);color:var(--accent)}
+.step h3{font-size:19px}
+.step p{font-size:16px;line-height:1.4}
+
+.note{font-size:15px;color:var(--muted);margin-top:auto}
+
+/* nav */
+#nav{position:fixed;bottom:14px;right:18px;display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted);z-index:5}
+#nav button{background:var(--slide);border:1px solid var(--line);color:var(--ink);border-radius:8px;width:34px;height:30px;cursor:pointer;font-size:15px}
+#bar{position:fixed;left:0;top:0;height:3px;background:var(--accent);transition:width .25s;z-index:5}
+</style>
+</head>
+<body>
+<div id="bar"></div>
+<div id="stage"><div id="deck">
+
+<!-- ============ TITLE ============ -->
+<section class="slide" style="justify-content:center">
+  <div class="kicker">jev-lite · October 2026</div>
+  <h1>JEV as a Judge</h1>
+  <p class="lead" style="margin-top:22px">Typed decision models as a fast, cheap replacement for LLM-as-a-judge</p>
+  <div style="display:flex;gap:14px;margin-top:56px">
+    <span class="tag" style="margin:0">1 · What JEV is</span>
+    <span class="tag" style="margin:0">2 · Where it is useful</span>
+    <span class="tag" style="margin:0">3 · What we built</span>
+  </div>
+</section>
+
+<!-- ============ PART 1 ============ -->
+<section class="slide divider">
+  <div class="num">01</div>
+  <h1>What is a JEV model?</h1>
+  <p class="lead">A model that decides, not one that writes</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">JEV · TypeSafe AI</div>
+  <h2>A "System One" model</h2>
+  <div class="grid g3">
+    <div class="card"><div class="ico">⚡</div><h3>No text generation</h3><p>Returns typed values, not prose. Output goes to software, not to people.</p></div>
+    <div class="card"><div class="ico">🎯</div><h3>Probabilities</h3><p>Every answer comes with a probability and a confidence score.</p></div>
+    <div class="card"><div class="ico">🔒</div><h3>Schema-safe</h3><p>Answers come only from options the caller defines, so it cannot return a value outside the schema.</p></div>
+  </div>
+  <p class="note">Early access since 15 Sep 2026 · $40M seed · named after Jevons: cheaper intelligence → far wider use</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">Interface</div>
+  <h2>State + typed questions → answers</h2>
+  <div class="flow" style="flex:1;max-height:390px">
+    <div class="box" style="flex:1.1">
+      <h3>State</h3>
+      <div class="code">text<br>JSON object<br>list of texts</div>
+    </div>
+    <div class="arrow">+</div>
+    <div class="box" style="flex:1.5">
+      <h3>Questions</h3>
+      <div class="prim"><span>bool</span><span>a statement → P(true)</span></div>
+      <div class="prim"><span>choice</span><span>1 of N options</span></div>
+      <div class="prim"><span>score</span><span>ordered levels</span></div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="box" style="flex:1.2;border-color:var(--accent)">
+      <h3>One pass</h3>
+      <div class="code">value<br>+ distribution<br>+ confidence</div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Claimed by TypeSafe (self-reported)</div>
+  <h2>Fast and cheap by design</h2>
+  <div class="grid g3" style="margin-top:10px">
+    <div class="card"><div class="big">70–500<small> ms</small></div><p style="margin-top:12px">end-to-end latency</p></div>
+    <div class="card"><div class="big">40–200<small>×</small></div><p style="margin-top:12px">faster than frontier LLMs</p></div>
+    <div class="card"><div class="big">40–400<small>×</small></div><p style="margin-top:12px">cheaper than frontier LLMs</p></div>
+  </div>
+  <p class="lead" style="margin-top:44px">Trained only on <b>synthetic data</b> with <b>RLCD</b> (Reinforcement Learning for Calibrated Decisions): probabilities are optimised against outcomes, not human preferences.</p>
+  <p class="note">TypeSafe's own benchmarks; they note the results may be biased.</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">A black box</div>
+  <h2>TypeSafe has published no technical documents</h2>
+  <div class="unknown">
+    <div>Architecture &amp; model size</div>
+    <div>Training algorithm (RLCD objective, reward)</div>
+    <div>Dataset contents &amp; synthetic pipeline</div>
+    <div>How probability vs confidence is computed</div>
+    <div>Weights or a paper</div>
+    <div>Third-party evaluations</div>
+  </div>
+  <p class="lead" style="margin-top:auto">Only the API is available. Everything we know comes from the interface and black-box tests.</p>
+</section>
+
+<!-- ============ PART 2 ============ -->
+<section class="slide divider">
+  <div class="num">02</div>
+  <h1>Where JEV is useful</h1>
+  <p class="lead">Any place where an LLM is used just to pick an answer</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">Technical use</div>
+  <h2>Decision points in software</h2>
+  <div class="grid g3">
+    <div class="card"><div class="ico">🧭</div><h3>Routing &amp; intent</h3><p>Which team, model or tool handles this request?</p></div>
+    <div class="card"><div class="ico">🛡️</div><h3>Guardrails</h3><p>Policy, PII, toxicity and jailbreak checks on every message.</p></div>
+    <div class="card"><div class="ico">📑</div><h3>Fact checking</h3><p>Is this claim supported by the document?</p></div>
+    <div class="card"><div class="ico">🤖</div><h3>Agent steps</h3><p>Tool choice, stop or continue, ask a human.</p></div>
+    <div class="card"><div class="ico">✅</div><h3>Data validation</h3><p>Check extracted fields and labels against the source.</p></div>
+    <div class="card"><div class="ico">📊</div><h3>Scoring &amp; ranking</h3><p>Quality, relevance and priority on a fixed scale.</p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Business value</div>
+  <h2>Why it matters</h2>
+  <div class="grid g2" style="gap:26px">
+    <div class="card"><h3>💸 Cost per decision</h3><p>Checks that are too expensive with an LLM become affordable at scale: every message, every document.</p></div>
+    <div class="card"><h3>⏱ Real-time</h3><p>Milliseconds instead of seconds, so it fits inside user-facing flows.</p></div>
+    <div class="card"><h3>🧩 No parsing failures</h3><p>Typed output plugs straight into code: no retries, no broken JSON.</p></div>
+    <div class="card"><h3>⚖️ Thresholds &amp; escalation</h3><p>Calibrated probabilities let you trade accuracy for coverage and escalate only the unsure cases.</p></div>
+  </div>
+  <p class="note">Examples: support ticket triage · contract clause review · content moderation · RAG answer QA</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">Our focus</div>
+  <h2>JEV as a Judge vs LLM as a Judge</h2>
+  <div class="vs">
+    <div class="h"></div><div class="h">LLM as a judge</div><div class="h" style="color:var(--accent)">JEV as a judge</div>
+    <div class="r">Output</div><div>Free text → parse</div><div class="win">Typed answer + probability</div>
+    <div class="r">Latency</div><div>Seconds</div><div class="win">~100 ms</div>
+    <div class="r">Cost</div><div>Tokens per call</div><div class="win">One small model</div>
+    <div class="r">New criterion</div><div>Edit the prompt</div><div class="win">Add a question</div>
+    <div class="r">Uncertainty</div><div>Often overconfident</div><div class="win">Escalate low confidence</div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">JEV as a Judge · RAG faithfulness</div>
+  <h2>Every claim checked against every chunk</h2>
+  <div style="display:flex;gap:56px;align-items:center;flex:1">
+    <table class="matrix">
+      <tr><th></th><th>chunk 1</th><th>chunk 2</th><th>chunk 3</th><th>chunk 4</th><th>max</th></tr>
+      <tr><th>claim 1</th><td class="hi">0.95</td><td>0.10</td><td>0.05</td><td>0.20</td><td class="ok">✓</td></tr>
+      <tr><th>claim 2</th><td>0.08</td><td>0.12</td><td class="hi">0.91</td><td>0.07</td><td class="ok">✓</td></tr>
+      <tr><th>claim 3</th><td>0.10</td><td>0.15</td><td>0.09</td><td>0.11</td><td class="no">✗</td></tr>
+    </table>
+    <div style="flex:1">
+      <div class="card" style="margin-bottom:16px"><h3>Per-claim verdict</h3><p>Shows which sentence is unsupported and which chunk supports the rest.</p></div>
+      <div class="card"><h3>Cascade</h3><p>Confident → JEV answers. Unsure → escalate to the LLM judge.</p></div>
+    </div>
+  </div>
+  <p class="note">Second criterion: does the answer address the question? (Score rubric)</p>
+</section>
+
+<!-- ============ PART 3 ============ -->
+<section class="slide divider">
+  <div class="num">03</div>
+  <h1>What we built</h1>
+  <p class="lead">jev-lite: an open JEV-like model, built from scratch</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">Approach</div>
+  <h2>Same interface, our own design</h2>
+  <div class="grid g2" style="gap:56px;align-items:center;flex:1">
+    <div class="arch">
+      <div class="layer" style="background:var(--faint);font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:500">question · [MASK] opt₁ [MASK] opt₂ … | state</div>
+      <div class="down">↓</div>
+      <div class="layer enc">ModernBERT-large · 395M</div>
+      <div class="down">↓ vector at each [MASK]</div>
+      <div class="heads"><div>bool</div><div>choice</div><div>score</div></div>
+    </div>
+    <div>
+      <p style="margin-bottom:18px"><b>Everything is candidate scoring:</b> one logit per option, read at its marker.</p>
+      <p style="margin-bottom:18px"><b>All options in one sequence</b>, so they see each other.</p>
+      <p><b>Open:</b> code and weights under Apache-2.0.</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Stage A</div>
+  <h2>First model trained on public data</h2>
+  <div class="grid g4">
+    <div class="card"><div class="big">25</div><p style="margin-top:10px">public English datasets</p></div>
+    <div class="card"><div class="big">300k</div><p style="margin-top:10px">records per epoch, 2 epochs</p></div>
+    <div class="card"><div class="big">9.5<small> h</small></div><p style="margin-top:10px">Kaggle, 2×T4 (free tier)</p></div>
+    <div class="card"><div class="big">73<small> ms</small></div><p style="margin-top:10px">median latency, laptop GPU</p></div>
+  </div>
+  <div class="grid g3" style="margin-top:26px">
+    <div class="card"><h3>Eval harness</h3><p>Paired tests, calibration, black-box probes</p></div>
+    <div class="card"><h3>Baselines</h3><p>Zero-shot NLI, Laya, and the JEV API</p></div>
+    <div class="card"><h3>Released</h3><p>v0.1.0 on GitHub + Hugging Face</p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Results vs open zero-shot baselines</div>
+  <h2>Clear lead, smaller on new sources</h2>
+  <div class="legend"><span><i style="background:var(--nli)"></i>NLI</span><span><i style="background:var(--laya)"></i>Laya</span><span><i style="background:var(--lite)"></i>jev-lite</span><span style="margin-left:auto">accuracy</span></div>
+  <div class="chart" style="--cols:5;height:330px" id="chart1"></div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Results vs the JEV API (jev-1.13.0, 16k records)</div>
+  <h2>Close on seen data, behind on new data</h2>
+  <div class="legend"><span><i style="background:var(--jev)"></i>JEV</span><span><i style="background:var(--lite)"></i>jev-lite</span><span style="margin-left:auto">accuracy</span></div>
+  <div class="chart" style="--cols:5;height:300px" id="chart2"></div>
+  <p class="note" style="margin-top:20px">jev-lite: 73 ms vs 195 ms per JEV API call · JEV wins on knowledge-heavy tasks (MMLU, ARC)</p>
+</section>
+
+<section class="slide">
+  <div class="kicker">Findings</div>
+  <h2>What the tests revealed</h2>
+  <div class="grid g2" style="gap:24px">
+    <div class="card" style="border-left:5px solid var(--jev)"><h3>JEV answers from its own knowledge</h3><p>With the passage removed it still gets 81% on FEVER (majority 68%). A risk for a faithfulness judge.</p></div>
+    <div class="card" style="border-left:5px solid var(--jev)"><h3>JEV is not deterministic</h3><p>The same request twice: probabilities differ by up to 0.11, and 2% of answers flip.</p></div>
+    <div class="card" style="border-left:5px solid var(--lite)"><h3>jev-lite: domain shift</h3><p>Too strict on unseen domains; calibration breaks (ECE 0.03 → 0.30).</p></div>
+    <div class="card" style="border-left:5px solid var(--lite)"><h3>jev-lite: refusals</h3><p>Detecting unanswerable questions does not transfer to new data (0.49).</p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Next</div>
+  <h2>Roadmap</h2>
+  <div class="road">
+    <div class="step done"><div class="dot">✓</div><h3>Stage A</h3><p>Public data, evaluation, v0.1.0</p></div>
+    <div class="step now"><div class="dot">B</div><h3>Stage B</h3><p>Synthetic data from a teacher LLM: new domains, refusals, hard negatives</p></div>
+    <div class="step"><div class="dot">C</div><h3>Calibration &amp; long context</h3><p>Confidence head, temperatures, inputs up to 8k tokens</p></div>
+    <div class="step"><div class="dot">J</div><h3>Judge pipeline</h3><p>Claims × chunks, relevance, cascade</p></div>
+    <div class="step"><div class="dot">P</div><h3>Production test</h3><p>Human-labelled answers from our system</p></div>
+  </div>
+  <div class="card" style="margin-top:auto;background:var(--accent-soft)">
+    <h3 style="color:var(--accent)">Success criterion (fixed before training)</h3>
+    <p style="color:var(--ink)">The cascade sends ≤ 40% of answers to the LLM judge and agrees with humans within 0.1 κ of the LLM judge, for both faithfulness and relevance, at ≤ 50% of the cost.</p>
+  </div>
+</section>
+
+<section class="slide" style="justify-content:center;align-items:flex-start">
+  <div class="kicker">Thank you</div>
+  <h1>Questions?</h1>
+  <p class="lead mono" style="margin-top:28px;font-size:20px">github.com/Nefelim584/JEV_Judge<br>huggingface.co/Nefelim584/jev-lite-stage-a</p>
+</section>
+
+</div></div>
+
+<div id="nav"><span id="count"></span><button id="prev" aria-label="Previous">‹</button><button id="next" aria-label="Next">›</button></div>
+
+<script>
+// charts: [label, sub, [[value, colorVar], ...]]
+function draw(id, groups){
+  const el = document.getElementById(id);
+  el.innerHTML = groups.map(([label, sub, vals]) =>
+    `<div class="group"><div class="bars">${vals.map(([v,c]) =>
+      `<div class="bar" style="height:${v*100}%;background:var(--${c})"><span>${v.toFixed(2)}</span></div>`).join('')}</div>
+     <div class="glabel"><b>${label}</b>${sub}</div></div>`).join('');
+}
+draw('chart1', [
+  ['Bool','seen sources',[[.763,'nli'],[.723,'laya'],[.882,'lite']]],
+  ['Choice','seen sources',[[.595,'nli'],[.596,'laya'],[.803,'lite']]],
+  ['Score','seen sources',[[.242,'nli'],[.309,'laya'],[.620,'lite']]],
+  ['Bool','new sources',[[.542,'nli'],[.519,'laya'],[.603,'lite']]],
+  ['Choice','new sources',[[.558,'nli'],[.585,'laya'],[.635,'lite']]],
+]);
+draw('chart2', [
+  ['Bool','seen sources',[[.853,'jev'],[.864,'lite']]],
+  ['Choice','seen sources',[[.856,'jev'],[.810,'lite']]],
+  ['Score','seen sources',[[.461,'jev'],[.627,'lite']]],
+  ['Bool','new sources',[[.763,'jev'],[.601,'lite']]],
+  ['Choice','new sources',[[.884,'jev'],[.627,'lite']]],
+]);
+
+const slides=[...document.querySelectorAll('.slide')];
+let i=0;
+try{ const h=parseInt(location.hash.slice(1)); if(h>0&&h<=slides.length) i=h-1; }catch(e){}
+function show(n){
+  i=Math.max(0,Math.min(slides.length-1,n));
+  slides.forEach((s,k)=>s.classList.toggle('active',k===i));
+  document.getElementById('count').textContent=`${i+1} / ${slides.length}`;
+  document.getElementById('bar').style.width=`${(i+1)/slides.length*100}%`;
+  history.replaceState(null,'',`#${i+1}`);
+}
+function fit(){
+  const s=Math.min(innerWidth/1320, innerHeight/760);
+  document.getElementById('deck').style.transform=`scale(${s})`;
+}
+addEventListener('resize',fit);
+addEventListener('keydown',e=>{
+  if(['ArrowRight','PageDown',' ','Enter'].includes(e.key)){e.preventDefault();show(i+1);}
+  if(['ArrowLeft','PageUp','Backspace'].includes(e.key)){e.preventDefault();show(i-1);}
+  if(e.key==='Home')show(0); if(e.key==='End')show(slides.length-1);
+  if(e.key==='f')document.documentElement.requestFullscreen?.();
+});
+document.getElementById('prev').onclick=()=>show(i-1);
+document.getElementById('next').onclick=()=>show(i+1);
+let tx=null;
+addEventListener('touchstart',e=>tx=e.touches[0].clientX,{passive:true});
+addEventListener('touchend',e=>{if(tx===null)return;const d=e.changedTouches[0].clientX-tx;if(Math.abs(d)>40)show(i+(d<0?1:-1));tx=null;});
+fit(); show(i);
+</script>
+</body>
+</html>

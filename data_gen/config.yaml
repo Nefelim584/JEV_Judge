@@ -1,0 +1,122 @@
+# Synthetic judge data: generation config. Shares are the starting values of dataset_dicr.md;
+# the section numbers in comments point there.
+
+dataset_version: jud-v0-pilot
+db: data/synthetic/pilot/gen.sqlite      # git-ignored (/data/)
+seed: 42
+
+llm:
+  base_url: http://127.0.0.1:8080/v1     # llama-server
+  model: qwen3.5-4b                      # recorded with every call; the server serves whatever it loaded
+  workers: 4                             # parallel requests; match llama-server -np
+  timeout_s: 900
+  max_retries: 3                         # transport errors only
+  response_format: json_schema           # json_schema | none (then only the prompt asks for JSON)
+  extra_body:
+    chat_template_kwargs: {enable_thinking: false}   # needs llama-server --jinja
+    cache_prompt: true
+
+# Second opinion for the agreement filter. null = the same server with the verify prompt.
+verifier: null
+
+max_attempts: 3          # per model step: invalid JSON or a failed check → ask again with another seed
+
+sampling:                # per prompt; merged over `default`
+  default: {temperature: 0.7, top_p: 0.8, top_k: 20, max_tokens: 1024}
+  taxonomy: {temperature: 1.0, top_p: 0.95, max_tokens: 3000}
+  document: {temperature: 0.9, top_p: 0.95, max_tokens: 4096}
+  question: {temperature: 0.9, top_p: 0.95, max_tokens: 256}
+  near_miss: {max_tokens: 1536}
+  unanswerable: {temperature: 0.3, max_tokens: 1536}
+  conflict: {temperature: 0.3, max_tokens: 1536}
+  near_duplicate: {temperature: 0.5, max_tokens: 1536}
+  answer: {max_tokens: 2048}
+  perturb: {temperature: 0.8, max_tokens: 256}
+  label: {temperature: 0.0, max_tokens: 1024}
+  label_full: {temperature: 0.0, max_tokens: 1024}
+  verify: {temperature: 0.0, max_tokens: 1024}
+  answerable: {temperature: 0.0, max_tokens: 256}
+
+taxonomy:
+  topics_per_domain: 20        # pilot; ~150 for 20k cases
+  batch: 10                    # topics per call
+  real_share: {encyclopedic: 0.5, news: 0.3}   # topics about the real world (section 3); the rest fictional
+
+# Section 3. weight = relative number of cases; ood = the whole domain goes to test_ood.
+domains:
+  help_center_faq: {weight: 1.0, docs: "support articles and FAQs", distort: "plans, limits, conditions such as 'only on Pro'"}
+  product_docs: {weight: 1.0, docs: "user documentation", distort: "steps, setting names, order of actions"}
+  api_reference: {weight: 1.0, docs: "API reference pages and config docs", distort: "parameters, default values, versions"}
+  release_notes: {weight: 1.0, docs: "changelogs and release notes", distort: "versions, dates, what was added or removed"}
+  internal_policies: {weight: 1.0, docs: "HR and corporate policies", distort: "deadlines, who is eligible, exceptions"}
+  legal_terms: {weight: 1.0, docs: "terms of service and contract clauses", distort: "obligations of the parties, terms, termination conditions"}
+  finance_reports: {weight: 1.0, docs: "financial reports and earnings releases, with tables", distort: "amounts, percentages, periods, growth and decline"}
+  ecommerce_catalog: {weight: 1.0, docs: "product pages and specifications", distort: "sizes, compatibility, what is in the box"}
+  travel_hospitality: {weight: 1.0, docs: "hotel, booking and carrier rules", distort: "check-in times, cancellation fees, baggage"}
+  government_services: {weight: 1.0, docs: "public service descriptions and document requirements", distort: "lists of documents, deadlines, eligibility"}
+  encyclopedic: {weight: 1.0, docs: "encyclopedia-style articles", distort: "dates, places, who did what"}
+  news: {weight: 1.0, docs: "news stories", distort: "who said what, when, numbers"}
+  research_abstracts: {weight: 1.0, docs: "abstracts of research papers", distort: "results, sample sizes, direction of effects"}
+  medical_leaflets: {weight: 1.0, docs: "leaflets for entirely fictional medicines (no real drugs or clinical advice)", distort: "doses, contraindications"}
+  insurance_policies: {weight: 0.25, ood: true, docs: "insurance policy terms", distort: "what is covered, deductibles, exclusions"}
+  automotive_manuals: {weight: 0.25, ood: true, docs: "vehicle owner's manuals", distort: "service intervals, warnings"}
+  education_courses: {weight: 0.25, ood: true, docs: "course syllabi and grading rules", distort: "deadlines, grade weights, requirements"}
+  real_estate: {weight: 0.25, ood: true, docs: "property listings and rental rules", distort: "areas, prices, contract terms"}
+
+# Section 12. Cases of OOD domains are test_ood; the rest are drawn with these shares. A test_ood case
+# of an in-domain topic uses the held-out question templates and may get quantifier_scope.
+splits: {train: 0.82, calib: 0.06, test_in: 0.06, test_ood: 0.06}
+
+chunks:                                   # section 4
+  n_chunks: {2: 0.08, 3: 0.12, 4: 0.60, 5: 0.08, 6: 0.06, 7: 0.03, 8: 0.03}
+  format: {prose: 0.55, markdown: 0.15, list: 0.10, table: 0.10, faq: 0.05, code_config: 0.05}
+  words: {60: 0.15, 140: 0.35, 280: 0.40, 550: 0.10}    # ≈ <128 / 128–256 / 256–512 / 512–1024 tokens
+  near_miss: 0.70            # a generated hard negative ("the same fact for another plan/year/product")
+  unanswerable: 0.10
+  conflict: 0.03             # an older version of a relevant chunk that contradicts it
+  near_duplicate: 0.05
+  breadcrumb: 0.30           # navigation noise in front of a chunk (4.4)
+  overlap: 0.20              # a prose chunk repeats the last sentence of the previous section
+
+question:                                 # section 5
+  kind: {factoid: 0.25, yes_no: 0.10, how_to: 0.15, list: 0.10, numeric: 0.10, comparison: 0.10,
+         multi_part: 0.10, why_explain: 0.05, ambiguous_underspecified: 0.05}
+  two_chunk_kinds: [comparison, multi_part]
+  # template_id = q.<kind>.<style>; one style per kind is held out for test_ood (20%)
+  styles:
+    full: "a complete, well-formed question"
+    conversational: "a casual chat message, possibly starting with a short greeting or a bit of context"
+    fragment: "a terse search-box query of 2 to 6 words, no question mark, like 'refund policy eu'"
+    typo: "a complete question with one or two realistic typos"
+    verbose: "a long question that first explains the user's situation in one or two sentences"
+
+answer:                                   # section 6
+  # extra answer kinds per case, on top of `grounded` + perturbed copies (answerable) or
+  # `hallucinated` + `refusal_justified` (unanswerable); shares tuned to land near 6.1
+  n_perturbed: {1: 0.6, 2: 0.4}
+  perturbations_per_answer: {1: 0.75, 2: 0.25}
+  extra_answerable: {none: 0.55, refusal_unjustified: 0.09, partial_refusal: 0.12, off_topic: 0.15, evasive: 0.09}
+  extra_unanswerable: {none: 0.7, evasive: 0.3}
+  form: {single: 0.15, paragraph: 0.50, list: 0.20, short_then_details: 0.15}
+  n_sentences: {"1-2": 0.25, "3-5": 0.45, "6-10": 0.25, "11-14": 0.05}
+  citations: 0.30
+  nonfactual: 0.40
+  hedging: 0.15
+  paraphrase: {verbatim: 0.20, light: 0.40, strong: 0.40}
+  multi_chunk_sentence: 0.10      # of grounded answers with two relevant chunks (6.4)
+
+perturbation:                             # 6.3
+  kind: {entity_swap: 0.15, number_swap: 0.15, date_swap: 0.10, negation: 0.10, unsupported_addition: 0.20,
+         cross_chunk_merge: 0.10, quantifier_scope: 0.10, relation_flip: 0.05, citation_swap: 0.05}
+  heldout: [quantifier_scope]     # test_ood only
+  length_ratio: [0.7, 1.4]        # rewritten sentence vs the original, per sentence
+
+difficulty: {easy: 0.30, medium: 0.40, hard: 0.30}    # section 10
+
+filter:
+  # an answer is dropped when the label and verify prompts disagree on any teacher-labelled pair, or
+  # when a label contradicts what the answer was built to be (a grounded sentence not supported, a
+  # perturbed sentence still supported); a case is dropped with its grounded answer or when the
+  # answerability check disagrees with the plan
+  drop_on_disagreement: true
+  near_duplicate_jaccard: 0.6     # documents, word 5-gram MinHash
