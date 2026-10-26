@@ -455,7 +455,7 @@ class FinQAJudge(Converter):
 
     def convert(self, row: dict, source_split: str) -> Iterable[Record]:
         qa = row.get("qa") or {}
-        question = re.sub(r"(?:\\n|\s)+$", "", qa.get("question") or "").strip()   # some end in a literal "\n"
+        question = re.sub(r"(?:\\+n?|\s)+$", "", qa.get("question") or "").strip()   # trailing "\\n" / "\\" / spaces
         answer = str(qa.get("answer") or "").strip()
         if not answer and isinstance(qa.get("exe_ans"), (int, float)):
             answer = f"{qa['exe_ans']:.4f}".rstrip("0").rstrip(".")

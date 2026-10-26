@@ -20,10 +20,11 @@ eval_cap: 1000
 dev_cap: 300
 
 sources:
-  # --- replay of Stage A, against forgetting (~30% of the training records) ---
+  # --- replay of Stage A, against forgetting (~25% of the training records by the size estimate; the
+  # judge Bool pools add up to ~200k, so the replay needs ~100k unique records) ---
   stage_a_replay:
     path: ["$STAGE_A_MIX/train.e0.jsonl", "$STAGE_A_MIX/train.e1.jsonl"]
-    cap: 60000
+    cap: 100000
   # the Stage A test sets and dev, whole and unchanged: Stage A → B forgetting is measured on them
   stage_a_eval:
     # dev*.jsonl: optional, the Kaggle copy of jevlite-mix predates the dev split (todo, 2026-10-11 upload)
@@ -33,7 +34,7 @@ sources:
 
   # Score keeps its Stage A rubric data directly: the replay cap holds few unique Score records (HelpSteer was
   # repeated in Stage A), and at 1024 tokens far more HelpSteer3 states fit (STAGE_A.md, todo Phase 3)
-  helpsteer2: {fit_only: true}
+  helpsteer2: {fit_only: true, cap: 30000}   # uncapped (~100k) it would be ~85% of Score and drown relevance
   helpsteer3: {fit_only: true}
 
   # --- judge data built by code (judge_train.py) ---
@@ -42,7 +43,7 @@ sources:
   hotpotqa_judge: {cap: 40000, fit_only: true}
   tatqa_judge: {cap: 20000, fit_only: true}
   finqa_judge: {cap: 15000, fit_only: true}
-  clapnq_judge: {}            # answerability (fixed), relevance (Score), conciseness / completeness pairs
+  clapnq_judge: {weight: 2.0} # answerability (fixed), relevance (Score, criterion b), conciseness / completeness pairs
 
   # --- new public sources (judge_public.py) ---
   faithfulness_qa: {cap: 25000}
