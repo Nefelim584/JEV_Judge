@@ -43,12 +43,14 @@ sources:
   hotpotqa_judge: {cap: 40000, fit_only: true}
   tatqa_judge: {cap: 20000, fit_only: true}
   finqa_judge: {cap: 15000, fit_only: true}
-  clapnq_judge: {weight: 2.0} # answerability (fixed), relevance (Score, criterion b), conciseness / completeness pairs
+  clapnq_judge: {weight: 2.0, fit_only: true} # answerability (fixed), relevance (Score, criterion b), conciseness / completeness pairs
 
   # --- new public sources (judge_public.py) ---
-  faithfulness_qa: {cap: 25000}
-  minicheck: {}
+  # fit_only on every judge source: a claim longer than max_len (a long LLM answer) cannot be encoded at
+  # all and would stop training on the GPU; the check drops it here instead
+  faithfulness_qa: {cap: 25000, fit_only: true}
+  minicheck: {fit_only: true}
   trust_data: {fit_only: true}
-  psiloqa: {cap: 20000}
+  psiloqa: {cap: 20000, fit_only: true}
   qasper: {fit_only: true}
   ragtruth: {fit_only: true}

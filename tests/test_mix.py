@@ -256,3 +256,12 @@ def test_replay_reads_an_earlier_mix(tmp_path, monkeypatch):
 def test_replay_missing_file_names_the_source(tmp_path):
     with pytest.raises(FileNotFoundError, match="replay"):
         build_pools(_cfg(tmp_path, {"replay": {"path": "nowhere/train.e0.jsonl"}}, weights={"bool": 1.0}))
+
+
+def test_fits_drops_a_question_longer_than_max_len(tokenizer):
+    from jevlite.data.mix import fits_checker
+
+    fits = fits_checker(tokenizer.name_or_path, 32)
+    short = Record(id="a", source="s", split="train", state="short state", type="bool", prompt="Is it?", target=1.0)
+    long = Record(id="b", source="s", split="train", state="s", type="bool", prompt="word " * 100, target=1.0)
+    assert fits(short.model_dump()) and not fits(long.model_dump())

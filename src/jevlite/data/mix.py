@@ -220,7 +220,12 @@ def fits_checker(tokenizer_name: str, max_len: int) -> Callable[[dict], bool]:
 
     def fits(row: dict) -> bool:
         r = Record.model_validate(row)
-        (seq,) = enc.encode_item(r.to_question(), enc.tokenize_state(r.state))
+        try:
+            (seq,) = enc.encode_item(r.to_question(), enc.tokenize_state(r.state))
+        except ValueError as e:
+            if "leaves no room for the state" in str(e):  # the question alone is longer than max_len
+                return False
+            raise
         return not seq.truncated
 
     return fits
