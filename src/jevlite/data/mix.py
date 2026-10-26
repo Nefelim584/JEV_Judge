@@ -35,6 +35,13 @@ exhausted by ``eval_cap`` have no ``dev`` records. ``dev`` keeps CC BY-SA record
 are left out of ``train`` and ``calib``, the splits that fit parameters. ``test_in`` and ``test_ood``
 keep them, so both versions are compared on the same test sets.
 
+``path`` (per source) reads the records from the given files instead of ``<dir>/<name>.jsonl``: a list
+of paths, relative to ``dir`` or absolute, ``$VARS`` expanded. It replays an earlier mix (todo Phase
+4b): its ``train.e*.jsonl`` as a training pool, its test files as eval records. Records keep their own
+``source`` (the share-alike check uses it), a record that occurs in several files is kept once, and
+``dev`` records are taken as they are (capped by ``dev_cap`` when set) instead of being carved from
+``test_in``, which stays the earlier mix's test set unchanged.
+
 ``extends: other.yaml`` starts from another mix config (relative to this file) and overrides it key by
 key; ``sources`` merge per source.
 
@@ -47,6 +54,7 @@ from __future__ import annotations
 import heapq
 import json
 import math
+import os
 import random
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -74,13 +82,20 @@ class SourceSpec:
     eval_cap: int | None = None  # overrides the mix-level eval_cap
     dev_cap: int | None = None  # overrides the mix-level dev_cap
     share_alike: bool | None = None  # None: from the source's converter (an error for unknown sources)
+    path: tuple[str, ...] | None = None  # files to read instead of <dir>/<name>.jsonl (replay of an earlier mix)
 
-    def is_share_alike(self, domain: str | None) -> bool:
+    def is_share_alike(self, domain: str | None, source: str | None = None) -> bool:
         if self.share_alike is not None:
             return self.share_alike
-        if self.name not in CONVERTERS:
-            raise ValueError(f"source {self.name!r} has no converter: set share_alike for it in the mix config")
-        return CONVERTERS[self.name].is_share_alike(domain)
+        name = source if self.path and source else self.name  # replayed records carry their own source
+        if name not in CONVERTERS:
+            raise ValueError(f"source {name!r} has no converter: set share_alike for {self.name!r} in the mix config")
+        return CONVERTERS[name].is_share_alike(domain)
+
+    def files(self, base: Path) -> list[Path]:
+        if not self.path:
+            return [base / f"{self.name}.jsonl"]
+        return [p if (p := Path(os.path.expandvars(x))).is_absolute() else base / p for x in self.path]
 
 
 @dataclass(frozen=True)
@@ -106,7 +121,10 @@ class MixConfig:
             raise ValueError(f"primitive_weights must map {PRIM_TYPES} to non-negative weights, got {weights}")
         if not math.isclose(sum(weights.values()), 1.0, abs_tol=1e-6):
             raise ValueError(f"primitive_weights must sum to 1, got {sum(weights.values())}")
-        sources = tuple(SourceSpec(name=n, **(spec or {})) for n, spec in d["sources"].items())
+        sources = tuple(
+            SourceSpec(name=n, **{**(spec or {}), **({"path": _paths(spec["path"])} if (spec or {}).get("path") else {})})
+            for n, spec in d["sources"].items()
+        )
         run_repeat = {p: float(r) for p, r in (d.get("run_repeat") or {}).items()}
         if set(run_repeat) - set(PRIM_TYPES) or any(r <= 0 for r in run_repeat.values()):
             raise ValueError(f"run_repeat must map primitives of {PRIM_TYPES} to positive numbers, got {run_repeat}")
@@ -117,6 +135,10 @@ class MixConfig:
             max_len=int(d.get("max_len", 512)), tokenizer=d.get("tokenizer", cls.tokenizer), seed=int(d.get("seed", 42)),
             share_alike=bool(d.get("share_alike", True)),
         )
+
+
+def _paths(value: str | list[str]) -> tuple[str, ...]:
+    return (value,) if isinstance(value, str) else tuple(value)
 
 
 def _merge(base: dict, override: dict) -> dict:
@@ -207,33 +229,48 @@ def build_pools(cfg: MixConfig, fits: Callable[[dict], bool] | None = None) -> P
     if fits is None and any(s.fit_only for s in cfg.sources):
         fits = fits_checker(cfg.tokenizer, cfg.max_len)
     for spec in cfg.sources:
-        path = cfg.dir / f"{spec.name}.jsonl"
-        if not path.exists():
-            raise FileNotFoundError(f"{path}: run scripts/convert_public.py --datasets {spec.name}")
+        paths = spec.files(cfg.dir)
+        for path in paths:
+            if not path.exists():
+                raise FileNotFoundError(f"{path}: " + (f"listed in the path of {spec.name!r}" if spec.path
+                                                       else f"run scripts/convert_public.py --datasets {spec.name}"))
         eval_cap = spec.eval_cap if spec.eval_cap is not None else cfg.eval_cap
         dev_cap = (spec.dev_cap if spec.dev_cap is not None else cfg.dev_cap) if eval_cap is not None else 0
+        if spec.path:  # replay: dev comes as it is, test_in stays whole
+            replay_dev, dev_cap = _Capped(spec.dev_cap), 0
         train = _Capped(spec.cap)
         # DEV_FROM keeps eval_cap + dev_cap by the same key: the first eval_cap are the test records
         evals = {s: _Capped(eval_cap + dev_cap if s == DEV_FROM and dev_cap else eval_cap) for s in EVAL_SPLITS}
         available = unfit = sa = 0
-        with path.open() as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                row = json.loads(line)
-                split = row["split"]
-                if split != "train" and split not in evals:
-                    continue
-                if not cfg.share_alike and split in ("train", "calib") and spec.is_share_alike(row.get("domain")):
-                    sa += 1
-                    continue
-                available += split == "train"
-                # The fit filter applies to eval splits too: a truncated rating is noisy to score.
-                if spec.fit_only and not fits(row):
-                    unfit += split == "train"
-                    continue
-                key = stable_hash(cfg.seed, "pool", row["id"])
-                (train if split == "train" else evals[split]).add(key, row["type"], line.rstrip("\n"))
+        seen: set[str] = set()
+        for path in paths:
+            with path.open() as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    row = json.loads(line)
+                    split = row["split"]
+                    if spec.path:
+                        if row["id"] in seen:
+                            continue
+                        seen.add(row["id"])
+                        if split == "dev":
+                            replay_dev.add(stable_hash(cfg.seed, "pool", row["id"]), row["type"], line.rstrip("\n"))
+                            continue
+                    if split != "train" and split not in evals:
+                        continue
+                    if not cfg.share_alike and split in ("train", "calib") and spec.is_share_alike(row.get("domain"), row.get("source")):
+                        sa += 1
+                        continue
+                    available += split == "train"
+                    # The fit filter applies to eval splits too: a truncated rating is noisy to score.
+                    if spec.fit_only and not fits(row):
+                        unfit += split == "train"
+                        continue
+                    key = stable_hash(cfg.seed, "pool", row["id"])
+                    (train if split == "train" else evals[split]).add(key, row["type"], line.rstrip("\n"))
+        if spec.path and replay_dev.items():
+            pools.eval[("dev", spec.name)] = [line for _, line in replay_dev.items()]
         by_prim: dict[str, list[str]] = defaultdict(list)
         for prim, line in train.items():
             by_prim[prim].append(line)

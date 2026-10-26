@@ -60,6 +60,43 @@ ROWS = {
     "faithbench": ("test", {"idx": 0, "source": "The film grossed $1 million.", "summary": "The film grossed $1 million.", "LLM": "m",
                             "worst-label": "Benign", "best-label": "Consistent"}),
     "nq": ("train", {"id": 3, "question": "who wrote the book", "title": "The Book", "passage": "The Book is a novel by Ann Lee.", "answerable": True}),
+    # judge training data (tests/test_judge_train.py has the label checks)
+    "ragbench_train": ("train", {"subset": "hagrid", "idx": 0, "id": "hagrid_1_0", "question": "When was Rolex founded?",
+                                 "documents": ["Rolex was founded in London in 1905.", "Omega is a Swiss watchmaker."],
+                                 "response": "Rolex was founded in 1905 in London.", "adherence_score": True,
+                                 "response_sentences": [["a", "Rolex was founded in 1905 in London."]],
+                                 "sentence_support_information": [{"response_sentence_key": "a", "supporting_sentence_keys": ["0a"], "fully_supported": True}],
+                                 "unsupported_response_sentence_keys": []}),
+    "hotpotqa_judge": ("train", {"id": "h1", "question": "Which is older, A or B?", "answer": "A", "type": "comparison", "level": "easy",
+                                 "supporting_facts": {"title": ["A", "B"], "sent_id": [0, 0]},
+                                 "context": {"title": ["A", "B", "C", "D", "E"],
+                                             "sentences": [["A was founded in 1900."], ["B was founded in 1950."], ["C is a river."],
+                                                           ["D is a town."], ["E is a band."]]}}),
+    "tatqa_judge": ("train", {"uid": "t1", "table_uid": "tab1", "question": "What was revenue in 2019?", "answer": ["1,200"],
+                              "answer_type": "span", "answer_from": "table", "scale": "thousand",
+                              "table": [["", "2019", "2018"], ["Revenue", "1,200", "1,000"]], "paragraphs": ["Revenue grew."]}),
+    "clapnq_judge": ("train", {"id": "c9", "input": "who wrote the book", "passages": [{"title": "Book", "text": "The book was written by Ann Lee. It sold well in Europe and Asia."}],
+                               "output": [{"answer": "Ann Lee wrote the book. She wrote it in 1990."}],
+                               "partner": {"id": "c8", "question": "when did the war end", "answer": "The war ended in 1945."}}),
+    "faithfulness_qa": ("train", {"id": "fq1", "question": "Who founded X?", "original_context": "X was founded by Ann.",
+                                  "modified_context": "X was founded by Bo.", "original_answer": "Ann", "faithful_answer": "Bo",
+                                  "entity_type": "PERSON", "source": "squad"}),
+    "minicheck": ("d2c", {"idx": 0, "claim": "The firm grew.", "doc": "The firm doubled its staff.", "label": 1}),
+    "trust_data": ("train", {"idx": 0, "source": "asqa", "question": "Who wrote X?", "docs": ["X\nX was written by Ann."],
+                             "chosen": "Ann wrote X [1].", "rejected": "Bo wrote X [1]."}),
+    "psiloqa": ("train", {"idx": 0, "id": "p1", "lang": "en", "wiki_title": "Acrijos", "wiki_passage": "Acrijos is a village in Soria.",
+                          "question": "Where is Acrijos?", "llm_answer": "Acrijos is in Soria. It has a famous castle.", "golden_answer": "It is a village in Soria.",
+                          "labels": "[[21, 44]]", "llm_checkpoint": "m"}),
+    "qasper": ("train", {"id": "q1", "full_text": {"paragraphs": [[f"Paragraph {i} " + "word " * 25 + ("the seed lexicon has 15 words." if i == 2 else "")] for i in range(8)]},
+                         "qas": {"question_id": ["a", "b"], "question": ["How big is the seed lexicon?", "What is the dataset?"],
+                                 "answers": [{"answer": [{"unanswerable": False, "free_form_answer": "15 words", "extractive_spans": [], "yes_no": None,
+                                                          "evidence": ["Paragraph 2 " + "word " * 25 + "the seed lexicon has 15 words."]}]},
+                                             {"answer": [{"unanswerable": True, "free_form_answer": "", "extractive_spans": [], "yes_no": None, "evidence": []}]}]}}),
+    "ragtruth": ("train", {"id": "r1", "source_id": "s1", "model": "m", "article": "The mayor opened a park on Monday.",
+                           "response": "The mayor opened a park on Monday. It cost $5 million.", "labels": [{"start": 35, "end": 54, "label_type": "Evident Baseless Info"}]}),
+    "finqa_judge": ("train", {"idx": 0, "id": "f1", "filename": "X/2009/page_1.pdf", "pre_text": ["revenue was $ 3.8 million ."],
+                              "post_text": ["."], "table_ori": [["", "2009"], ["revenue", "$3.8"]],
+                              "qa": {"question": "what was revenue?", "answer": "3.8", "gold_inds": {"text_0": "x"}}}),
 }
 
 
@@ -278,7 +315,9 @@ def test_mcqa_records_borrow_within_a_source_split(monkeypatch):
 
 def test_share_alike_flags():
     sa = {n for n, c in CONVERTERS.items() if c.share_alike}
-    assert sa == {"boolq", "snli", "qnli", "vitaminc", "squad_v2", "clapnq", "arc", "dbpedia14", "fever", "hover", "feverous", "nq"}
+    assert sa == {"boolq", "snli", "qnli", "vitaminc", "squad_v2", "clapnq", "arc", "dbpedia14", "fever", "hover", "feverous", "nq",
+                  "hotpotqa_judge", "clapnq_judge", "faithfulness_qa", "psiloqa"}
+    assert CONVERTERS["ragbench_train"].is_share_alike("ragbench/hotpotqa") and not CONVERTERS["ragbench_train"].is_share_alike("ragbench/tatqa")
     multi_nli = CONVERTERS["multi_nli"]
     assert multi_nli.is_share_alike("fiction") and not multi_nli.is_share_alike("travel")
 

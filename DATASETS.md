@@ -280,7 +280,7 @@ Checked against the HF Hub API (`cardData.license`), the GitHub API (`license.sp
 
 | Source | License (where checked) | Size | Format and labels | Verdict |
 |---|---|---|---|---|
-| **RAGBench**, train + validation of hotpotqa, finqa, tatqa, hagrid, expertqa, techqa, pubmedqa | dataset CC BY 4.0 (HF). Sources: HotpotQA CC BY-SA 4.0, FinQA MIT / CC BY 4.0, TAT-QA CC BY 4.0, HAGRID Apache-2.0 (GH, HF), ExpertQA MIT, TechQA Apache-2.0 (GH `IBM/techqa`), PubMedQA MIT (GH) | 74.9k: tatqa 29.8k, pubmedqa 22.1k, finqa 14.3k, hagrid 3.2k, hotpotqa 2.3k, expertqa 1.8k, techqa 1.5k | question, documents, LLM response (`generation_model_name`), GPT-4 labels: `sentence_support_information` (response sentence → supporting document sentences), adherence, relevance, utilization | ✅ **Cap tatqa / pubmedqa / finqa** (85% of the rows). Responses come from commercial LLMs: the provider-terms caveat of section 5 applies, as for every LLM-made set |
+| **RAGBench**, train (training) + validation (`test_in` / `dev`) of hotpotqa, finqa, tatqa, hagrid, expertqa, techqa, pubmedqa | dataset CC BY 4.0 (HF). Sources: HotpotQA CC BY-SA 4.0, FinQA MIT / CC BY 4.0, TAT-QA CC BY 4.0, HAGRID Apache-2.0 (GH, HF), ExpertQA MIT, TechQA Apache-2.0 (GH `IBM/techqa`), PubMedQA MIT (GH) | 74.9k: tatqa 29.8k, pubmedqa 22.1k, finqa 14.3k, hagrid 3.2k, hotpotqa 2.3k, expertqa 1.8k, techqa 1.5k | question, documents, LLM response (`generation_model_name`), GPT-4 labels: `sentence_support_information` (response sentence → supporting document sentences), adherence, relevance, utilization | ✅ **Cap tatqa / pubmedqa / finqa** (85% of the rows). Responses come from commercial LLMs: the provider-terms caveat of section 5 applies, as for every LLM-made set |
 | **Faithfulness-QA** (GH `qzhangFDU/faithfulness-qa-dataset`, HF `Laurie/faithfulness-qa-dataset`) | MIT (HF card, README badge); **no LICENSE file in the GH repo**. Sources: SQuAD (CC BY-SA 4.0), TriviaQA (Wikipedia evidence) | 99.1k: 79.3k / 9.9k / 9.9k (SQuAD 49.1k, TriviaQA 50k) | JSONL: question, `original_context`, modified context, original and substituted answer, entity type; deterministic rule-based substitution, no LLM | ✅ SA is approved (section 0). Passage overlap with CJB's MRQA part goes through the overlap filter |
 | **MiniCheck C2D / D2C** (`lytang/C2D-and-D2C-MiniCheck`) | MIT (HF card); code Apache-2.0 (GH) | 14.4k: C2D 7,076, D2C 7,319 | claim, doc, label 0/1. C2D: ~400 Wikipedia claims with cited web articles (WiCE, Kamoi et al. 2023; Petroni et al. 2023), documents written by GPT; D2C: ~300 scraped Google News articles (from Nov 2023), claims by GPT | ⚠️ **WiCE is inside LLM-AggreFact** (our eval): check claim overlap and drop matches; D2C documents are third-party news (same copyright class as CNN/DM): take D2C only with the user's OK |
 | **Trust-Data** (`declare-lab/Trust-Data`) | Apache-2.0 (HF). Sources: ASQA Apache-2.0, QAMPARI CC0-1.0 (GH), ExpertQA MIT, **ELI5: no license** (GH NOASSERTION, HF unknown; Reddit questions) | DPO 15.6k / 1.7k pairs; SFT 8.9k; Trust-Score eval 5.1k (question, answers, docs) | prompt with the retrieved documents, `chosen` / `rejected`; a refusal is `chosen` when the documents do not answer | ⚠️ Rows do not carry their source: drop **ELI5** by matching questions to the source sets, else leave Trust-Data out. ASQA overlaps CJB's QA-Feedback part (ASQA-based) and ExpertQA LLM-AggreFact: overlap filter + "seen source" flag. Use as Choice K = 2 (faithful / refusal-correct answer) and as answerability |
@@ -291,6 +291,26 @@ Checked against the HF Hub API (`cardData.license`), the GitHub API (`license.sp
 
 - **Label noise:** RAGBench, MiniCheck and PsiloQA are LLM-labelled. Keep `label_source` per record and report Stage B per source.
 - **Answerability sources** (HotpotQA construction, Trust-Data, Qasper) must pass the 2×2 passage-swap test (section 5.1) before they enter the mix.
+
+### 8.2a Converters (2026-10-26)
+
+`src/jevlite/data/public/judge_train.py`; tests in `tests/test_judge_train.py`.
+
+| Converter | Records per source row | Split unit |
+|---|---|---|
+| `ragbench_train` | answer vs all documents (`adherence_score`); one answer sentence vs all documents; the same sentence vs one document (its own → 1, another → 0). Sentences backed only by "general" / "well_known_fact" keys, or annotated inconsistently, are skipped. **Validation → `test_in` / `dev`**, so only the train splits (~67k rows) are trained on | question |
+| `hotpotqa_judge` | gold answer + one negative (`faithfulness_full`); answerable + not answerable (`answerable`) | question |
+| `tatqa_judge`, `finqa_judge` | gold answer + one negative (`faithfulness_full`) | table / report page |
+| `clapnq_judge` (the 5.1 fix; old `clapnq` kept for the Stage A mixes) | answerable files only: the passage with its own question (1) and another page's question (0); relevance Score (own answer → fully, another page's answer → does not address, own answer to both questions joined → partially; "mostly addresses" has no source yet); conciseness pair (answer vs answer + passage sentences) and completeness pair (answer vs answer minus its last sentence), both orders, so length alone never decides | question |
+| `faithfulness_qa` | the replacement answer (1) and the world-true original answer (0) against the edited passage; incomplete edits and a year replaced by a non-year are skipped | question |
+| `minicheck` | claim vs document, Bool (NLI form). C2D claims found in LLM-AggreFact dropped; C2D left out when LLM-AggreFact is not accessible (gated) | row |
+| `trust_data` | Choice K = 2 (preferred vs dispreferred answer, both orders) + answerability (preferred answer is a refusal → 0). Only QAMPARI (own instruction) and ASQA (question in `din0s/asqa`) rows; pairs of two refusals skipped | question |
+| `psiloqa` | the LLM answer (0 if any span) and the GPT-4o golden answer (1) against the passage, plus one answer sentence (0 if it overlaps a span) | Wikipedia page |
+| `qasper` | answerability on chunks of the same paper (evidence + closest paragraphs → 1; same count with the evidence swapped out → 0; unanimous unanswerable → 0); annotator answer vs the evidence chunks (1) and another question's answer from the same paper or a yes/no flip (0) | paper |
+| `ragtruth` | CNN/DM summaries only: the summary (0 if any span, `implicit_true` included) and one sentence against the article | article |
+
+- **Wording:** the user's question is written into every claim (training has no claim groups yet). The templates avoid the eval wording of the judge benchmarks (`The answer to the question "…" is: …`), so Stage B gains there are not a template effect. A gold answer and its negative share their template.
+- **Fields:** `criterion` (`faithfulness` = one chunk, `faithfulness_full` = all chunks, `answerable`), `user_question`, `group`, `label_source` (`human` / `llm` / `program`), `perturbation` on negatives.
 
 ### 8.3 Never trained on
 

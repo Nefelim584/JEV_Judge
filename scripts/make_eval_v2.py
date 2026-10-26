@@ -23,10 +23,11 @@ import json
 from collections import Counter
 from pathlib import Path
 
+from jevlite.data.public.judge_train import RAGBenchTrain
 from jevlite.data.unified import load_records
 
 # RAGBench subsets whose train/validation splits go into Stage B (DATASETS.md 8.2, approved 2026-10-26)
-TRAINED_DOMAINS = tuple(f"ragbench/{s}" for s in ("hotpotqa", "finqa", "tatqa", "hagrid", "expertqa", "techqa", "pubmedqa"))
+TRAINED_DOMAINS = tuple(f"ragbench/{s}" for s in RAGBenchTrain.SUBSETS)
 # held out, but their source is trained on in another form: report them flagged
 SEEN_SOURCE = {
     "halubench/pubmedqa": "PubMedQA via RAGBench pubmedqa",

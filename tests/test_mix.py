@@ -223,3 +223,35 @@ def test_dev_is_the_test_in_remainder_and_leaves_tests_unchanged(tmp_path):
     assert not test_ids & {r["id"] for r in dev}
     capped = build_pools(_cfg(tmp_path, {"b1": {"dev_cap": 100}}, weights={"bool": 1.0}, eval_cap=10))
     assert len(eval_lines(capped, "dev")) == 30  # the remainder of a 40-record pool
+
+
+def test_replay_reads_an_earlier_mix(tmp_path, monkeypatch):
+    """``path`` sources (todo Phase 4b): the training files of an earlier mix as one pool, its test files
+    unchanged, its dev as it is; a record in two epoch files counts once; SA by the record's own source."""
+    old = tmp_path / "old_mix"
+    old.mkdir()
+    rec = lambda i, split, source="multi_nli", domain="travel": Record(  # noqa: E731
+        id=f"{source}:{i}", source=source, domain=domain, split=split, state="s", type="bool", prompt="p", target=1.0)
+    write_jsonl(old / "train.e0.jsonl", [rec(i, "train") for i in range(0, 30)])
+    write_jsonl(old / "train.e1.jsonl", [rec(i, "train") for i in range(20, 50)] + [rec(99, "train", domain="fiction")])
+    write_jsonl(old / "test_in.jsonl", [rec(100 + i, "test_in") for i in range(30)])
+    write_jsonl(old / "dev.jsonl", [rec(200 + i, "dev") for i in range(8)])
+    _source(tmp_path, "b1", 30, "bool", n_test=15)
+    monkeypatch.setenv("OLD_MIX", str(old))
+    sources = {
+        "b1": {"share_alike": False},
+        "replay": {"path": ["$OLD_MIX/train.e0.jsonl", "$OLD_MIX/train.e1.jsonl"], "cap": 40},
+        "replay_eval": {"path": ["$OLD_MIX/test_in.jsonl", "$OLD_MIX/dev.jsonl"], "eval_cap": 10**6},  # null = the mix cap
+    }
+    pools = build_pools(_cfg(tmp_path, sources, weights={"bool": 1.0}, eval_cap=10, dev_cap=2))
+    assert pools.available["replay"] == 51 and len(pools.train[("replay", "bool")]) == 40   # 50 unique + 1, capped
+    assert len(pools.eval[("test_in", "replay_eval")]) == 30                                  # the old test set, whole
+    assert len(pools.eval[("dev", "replay_eval")]) == 8                                       # dev as it was, not carved
+    assert len(pools.eval[("test_in", "b1")]) == 10 and len(pools.eval[("dev", "b1")]) == 2   # converted sources unchanged
+    nosa = build_pools(_cfg(tmp_path, sources, weights={"bool": 1.0}, eval_cap=10, share_alike=False))
+    assert nosa.dropped_sa["replay"] == 1                                                     # the MultiNLI fiction record
+
+
+def test_replay_missing_file_names_the_source(tmp_path):
+    with pytest.raises(FileNotFoundError, match="replay"):
+        build_pools(_cfg(tmp_path, {"replay": {"path": "nowhere/train.e0.jsonl"}}, weights={"bool": 1.0}))
