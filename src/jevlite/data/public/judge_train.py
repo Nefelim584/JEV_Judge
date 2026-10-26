@@ -35,7 +35,7 @@ from typing import Any, Iterable, Iterator, Sequence
 
 from ...schema import State
 from ..unified import Record
-from .base import ANSWERABLE, Converter, Template, fetch, hf_rows, pick_template, rng_for
+from .base import ANSWERABLE, Converter, Template, fetch, hf_rows, pick_template, rng_for, stable_hash
 from .factcheck import clean_abstract
 
 ANSWER_CLAIM = (
@@ -188,7 +188,13 @@ class RAGBenchTrain(Converter):
 
     def rows(self, source_split: str) -> Iterator[dict]:
         for subset in self.SUBSETS:
+            seen: set[tuple[str, str]] = set()
             for i, row in enumerate(hf_rows("galileo-ai/ragbench", subset, source_split, self.streaming)):
+                # ids are not unique (finqa: "finqa_2311" for several responses); drop exact repeats only
+                key = (str(row.get("id")), (row.get("response") or "").strip())
+                if key in seen:
+                    continue
+                seen.add(key)
                 yield {**row, "subset": subset, "idx": i}
 
     def convert(self, row: dict, source_split: str) -> Iterable[Record]:
@@ -197,10 +203,11 @@ class RAGBenchTrain(Converter):
         if not docs or not question or not response:
             return []
         state = list(docs.values())
-        # one response per (question, model): split by question, so all its responses land together
-        qid = str(row.get("id") or row["idx"]).rsplit("_", 1)[0]
+        # several responses per question: split by the question text (id formats differ per subset: "hagrid_4019_0",
+        # "finqa_2311"), so all its responses land together; the record id comes from the row position
+        qid = stable_hash(" ".join(question.lower().split()))
         row_key = (source_split, row["subset"], qid)
-        rid = str(row.get("id") or row["idx"])
+        rid = f"{row.get('id', '')}@{row['idx']}"
         rng = rng_for(self.name, rid)
         common = dict(domain=f"ragbench/{row['subset']}", user_question=question, label_source="llm",
                       generation_model=row.get("generation_model_name"))

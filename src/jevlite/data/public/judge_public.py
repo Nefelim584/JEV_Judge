@@ -55,6 +55,21 @@ PREFERENCE = (
 )
 
 
+def first_by_id(rows: Iterable[dict], name: str, split: str, key: str = "id") -> Iterator[dict]:
+    """Rows with a repeated ``key`` collapsed to the first one (record ids must be unique per source;
+    TriviaQA-based rows repeat a question id across evidence documents)."""
+    seen, dropped = set(), 0
+    for row in rows:
+        k = row.get(key)
+        if k in seen:
+            dropped += 1
+            continue
+        seen.add(k)
+        yield row
+    if dropped:
+        logger.info("[{}] {}: {} rows with a repeated {} dropped", name, split, dropped, key)
+
+
 def _sentences(text: str) -> list[str]:
     from ...judge.claims import split_sentences
 
@@ -87,7 +102,8 @@ class FaithfulnessQA(Converter):
     splits = {"train": "train", "validation": "test_in"}
 
     def rows(self, source_split: str) -> Iterator[dict]:
-        yield from hf_rows("Laurie/faithfulness-qa-dataset", "all", source_split, self.streaming)
+        rows = hf_rows("Laurie/faithfulness-qa-dataset", "all", source_split, self.streaming)
+        yield from first_by_id(({**r, "uid": f"{r.get('source')}:{r['id']}"} for r in rows), self.name, source_split, "uid")
 
     def convert(self, row: dict, source_split: str) -> Iterable[Record]:
         context = (row.get("modified_context") or "").strip()
@@ -245,9 +261,9 @@ class PsiloQA(Converter):
     splits = {"train": "train", "validation": "test_in"}
 
     def rows(self, source_split: str) -> Iterator[dict]:
-        for i, row in enumerate(hf_rows("s-nlp/PsiloQA", None, source_split, self.streaming)):
-            if row.get("lang") == "en":
-                yield {**row, "idx": i}
+        rows = ({**row, "idx": i} for i, row in enumerate(hf_rows("s-nlp/PsiloQA", None, source_split, self.streaming))
+                if row.get("lang") == "en")
+        yield from first_by_id(rows, self.name, source_split)
 
     def convert(self, row: dict, source_split: str) -> Iterable[Record]:
         passage, question = (row.get("wiki_passage") or "").strip(), (row.get("question") or "").strip()

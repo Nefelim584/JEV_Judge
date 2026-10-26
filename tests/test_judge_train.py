@@ -165,3 +165,27 @@ def test_dev_rows_are_test_in(name):
     split, row = ROWS[name]
     dev = {"ragbench_train": "validation", "hotpotqa_judge": "validation"}.get(name, "dev")
     assert {r.split for r in get_converter(name).convert(row, dev)} <= {"test_in", "test_ood"}
+
+
+def test_ragbench_train_ids_and_split_units(monkeypatch):
+    """finqa ids carry no response index ("finqa_2311" for several responses): records stay unique, the split
+    follows the question text, exact repeats are dropped."""
+    from jevlite.data.public import judge_train
+
+    conv = get_converter("ragbench_train")
+    a = {**RAGBENCH_ROW, "subset": "finqa", "id": "finqa_2311"}
+    b = {**a, "response": "Revenue was $1.2m in 2019, up from 2018."}
+    other_q = {**a, "id": "finqa_2312", "question": "What were the costs in 2019?"}
+
+    def fake_rows(hf_id, config, split, streaming=False, parquet_export=False):
+        yield from (a, a, b, other_q) if config == "finqa" else ()
+
+    monkeypatch.setattr(judge_train, "hf_rows", fake_rows)
+    rows = list(conv.rows("train"))
+    assert len(rows) == 3                                            # the exact repeat of a is gone
+    records = [r for row in rows for r in conv.convert(row, "train")]
+    ids = [r.id for r in records]
+    assert len(ids) == len(set(ids))
+    # a and b answer the same question: one split unit; the key is not the bare subset name
+    keys = {r.id.split(":")[3] for r in records}
+    assert len(keys) == 2

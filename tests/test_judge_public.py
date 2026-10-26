@@ -135,3 +135,15 @@ def test_ragtruth_summary_and_sentence():
     assert summary.target == 0.0 and summary.field("hallucination_types") == ["Evident Baseless Info"]
     assert sentence.target == (0.0 if sentence.prompt.endswith("It cost $5 million.") else 1.0)
     assert {r.split for r in convert("ragtruth")} <= {"train", "calib"}
+
+
+def test_repeated_ids_keep_the_first_row(monkeypatch):
+    def fake_rows(hf_id, config, split, streaming=False, parquet_export=False):
+        row = {**ROWS["faithfulness_qa"][1], "source": "triviaqa"}
+        yield from (row, {**row, "modified_context": "X was founded by Cy.", "faithful_answer": "Cy"}, {**row, "source": "squad"})
+
+    monkeypatch.setattr(judge_public, "hf_rows", fake_rows)
+    rows = list(get_converter("faithfulness_qa").rows("train"))
+    assert [(r["source"], r["faithful_answer"]) for r in rows] == [("triviaqa", "Bo"), ("squad", "Bo")]
+    ids = [r.id for row in rows for r in get_converter("faithfulness_qa").convert(row, "train")]
+    assert len(ids) == len(set(ids))
