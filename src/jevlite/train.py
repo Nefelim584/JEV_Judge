@@ -206,6 +206,7 @@ def train(
     micro = t["per_device_batch_size"]
     steps_per_epoch = [_count_lines(f) // (micro * d.world * accum) for f in files]
     total_steps = sum(steps_per_epoch)
+    logger.info("steps per epoch {} (micro-batch {} × world {} × accum {})", steps_per_epoch, micro, d.world, accum)
     params = [p for p in model.parameters() if p.requires_grad]
     lr = t["lr"][cfg["tuning"]["mode"]]
     # ``train.lr.heads``: trunk + heads in their own group (todo, "Stage A — head learning rate": at the encoder's
@@ -254,6 +255,7 @@ def train(
                 eval_sets[split] = load_records(p)
         if not any(s in eval_sets for s in eval_splits):
             logger.warning("no {} in {}: training without periodic eval (the tests are for the final eval only)", "/".join(eval_splits), mix_dir)
+        logger.info("eval sets loaded: {}", ", ".join(f"{s} {len(r)}" for s, r in eval_sets.items()))
     eval_max = t.get("eval_max_records")
     eval_small = {s: eval_subset(eval_sets[s], dict(eval_max) if isinstance(eval_max, dict) else eval_max, cfg["seed"]) for s in eval_splits if s in eval_sets}
     eval_bs = int(t.get("eval_batch_size", micro * 4))
@@ -263,6 +265,7 @@ def train(
         from torch.nn.parallel import DistributedDataParallel
 
         net = DistributedDataParallel(model, device_ids=[d.local_rank] if rt.device.type == "cuda" else None)
+        logger.info("DDP ready (all {} ranks)", d.world)
 
     def run_files() -> list[Path]:
         return [run_dir / n for n in ("config.yaml", "metrics.jsonl", "run.log")]
@@ -292,6 +295,7 @@ def train(
     log_every, eval_every = int(t.get("log_every_steps", 50)), int(t.get("eval_every_steps", 1000))
     every_s = 60 * float(ck.get("every_minutes", 40))
     t0 = last_ckpt = time.monotonic()
+    first_step = gstep + 1
     window: dict[str, list[float]] = {}
     status = "done"
     model.train()
@@ -306,6 +310,7 @@ def train(
             persistent_workers=False, prefetch_factor=4 if t.get("num_workers", 2) else None,
         )
         it = iter(loader)
+        logger.info("epoch {}: {} records, {} micro-batches, steps {}–{}", epoch, len(data), len(batches), s_from, steps_per_epoch[epoch])
         for s in range(s_from, steps_per_epoch[epoch]):
             for a in range(accum):
                 batch, target = next(it)
@@ -331,6 +336,8 @@ def train(
             optimizer.zero_grad(set_to_none=True)
             scheduler.step()
             gstep += 1
+            if d.main and gstep == first_step:
+                logger.info("first step of this session done ({:.1f} s since the loop started)", time.monotonic() - t0)
 
             if d.main and gstep % log_every == 0:
                 row = {k: sum(v) / len(v) for k, v in window.items()}

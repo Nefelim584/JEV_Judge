@@ -16,6 +16,7 @@ from ``HF_TOKEN``.
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import os
 import subprocess
 from datetime import timedelta
@@ -51,6 +52,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--max-minutes", type=float, default=None, help="stop with a checkpoint after this long (Kaggle: 690)")
     ap.add_argument("--no-hub", action="store_true", help="keep checkpoints local only")
     ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
+    ap.add_argument("--dump-stacks", type=float, default=None, metavar="MIN",
+                    help="every MIN minutes each rank prints the stacks of its threads to stderr (a hang under torchrun)")
     args = ap.parse_args(argv)
 
     from jevlite.config import apply_env, load_config
@@ -77,6 +80,11 @@ def main(argv: list[str] | None = None) -> None:
     setup_logging(run_dir / "run.log" if d.main else None, level="INFO" if d.main else "WARNING")
     hub = None if args.no_hub else cfg["train"].get("checkpoint", {}).get("hub_repo")
     logger.info("run {} (stack {}, stage {}, world {}), hub {}", args.run, args.stack, args.stage, d.world, hub or "off")
+    if args.dump_stacks:
+        # faulthandler's C thread dumps even when the main thread holds the GIL. A dump does not name its
+        # rank, so rank r dumps r × 30 s after rank 0: in the log the dumps come in rank order.
+        faulthandler.dump_traceback_later(args.dump_stacks * 60 + 30 * d.rank, repeat=True)
+        logger.info("stack dumps every {} min to stderr, rank r 30 s × r after rank 0", args.dump_stacks)
     try:
         result = train(
             cfg, stage=args.stage, data_root=args.data_root, runs_dir=args.runs_dir, run_name=args.run, hub_repo=hub,
