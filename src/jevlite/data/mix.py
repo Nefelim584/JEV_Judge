@@ -186,6 +186,8 @@ class Pools:
     dropped_unfit: dict[str, int] = field(default_factory=dict)
     # Train + calib records left out as CC BY-SA (``share_alike: false``), per source.
     dropped_sa: dict[str, int] = field(default_factory=dict)
+    # Eval records whose id an earlier source already put in an eval split, per source (``_dedupe_eval``).
+    dropped_dup: dict[str, int] = field(default_factory=dict)
 
 
 class _Capped:
@@ -301,7 +303,31 @@ def build_pools(cfg: MixConfig, fits: Callable[[dict], bool] | None = None) -> P
         pools.available[spec.name] = available
         pools.dropped_unfit[spec.name] = unfit
         pools.dropped_sa[spec.name] = sa
+    _dedupe_eval(pools)
     return pools
+
+
+def _dedupe_eval(pools: Pools) -> None:
+    """Every record id in at most one eval split, kept where the first source in the config put it.
+
+    A replay of an earlier mix's tests and a converted source of that mix both bring the same records
+    (Stage B: ``stage_a_eval`` and ``helpsteer2`` / ``helpsteer3``). With a different ``max_len`` the
+    ``fit_only`` filter moves the hash cut, so a record of the old ``dev`` can even reach the new
+    ``test_in``; keeping the replay's copy keeps the old splits as they were."""
+    seen: set[str] = set()
+    for key, lines in list(pools.eval.items()):
+        kept = []
+        for line in lines:
+            rid = json.loads(line)["id"]
+            if rid in seen:
+                pools.dropped_dup[key[1]] = pools.dropped_dup.get(key[1], 0) + 1
+                continue
+            seen.add(rid)
+            kept.append(line)
+        if kept:
+            pools.eval[key] = kept
+        else:
+            del pools.eval[key]
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -436,6 +462,7 @@ def mix_report(cfg: MixConfig, pools: Pools, allocations: list[Allocation], epoc
         "name": cfg.name, "total": total, "nominal_total": cfg.total, "epochs": epochs, "run_repeat": cfg.run_repeat,
         "primitive_weights": cfg.primitive_weights, "max_len": cfg.max_len,
         "share_alike": cfg.share_alike, "dropped_sa": {k: v for k, v in pools.dropped_sa.items() if v},
+        "eval_dropped_dup": {k: v for k, v in pools.dropped_dup.items() if v},
         "primitives": {p: {"drawn": by_prim.get(p, 0), "pool": sum(a.pool for a in allocations if a.primitive == p)} for p in PRIM_TYPES},
         "train": rows, "eval": {s: dict(v) for s, v in evals.items()},
     }
@@ -481,4 +508,7 @@ def report_markdown(report: dict) -> str:
         out += ["", "Repeats over the run: " + ", ".join(f"{r['source']} {r['run_repeat']:.2f}×" for r in report["train"] if r["primitive"] in report["run_repeat"])]
     for split, sources in report["eval"].items():
         out += ["", f"**{split}:** {sum(sources.values())} records — " + ", ".join(f"{k} {v}" for k, v in sources.items())]
+    if report.get("eval_dropped_dup"):
+        out += ["", "**Eval records left out as already in an eval split of an earlier source:** "
+                + ", ".join(f"{k} {v}" for k, v in report["eval_dropped_dup"].items())]
     return "\n".join(out) + "\n"

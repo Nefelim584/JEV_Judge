@@ -253,6 +253,29 @@ def test_replay_reads_an_earlier_mix(tmp_path, monkeypatch):
     assert nosa.dropped_sa["replay"] == 1                                                     # the MultiNLI fiction record
 
 
+def test_replayed_tests_and_their_source_give_each_eval_id_once(tmp_path, monkeypatch):
+    """Stage B: ``stage_a_eval`` replays the old tests and dev, and ``helpsteer2`` cuts its own tests from
+    the same file. Each id ends up in one eval split, the replay's (an old dev record stays out of test_in)."""
+    _source(tmp_path, "b1", 30, "bool", n_test=15)
+    old = tmp_path / "old_mix"
+    old.mkdir()
+    rows = [json.loads(line) for line in (tmp_path / "b1.jsonl").read_text().splitlines()]
+    tests = [r for r in rows if r["split"] == "test_in"]
+    write_jsonl(old / "test_in.jsonl", tests[:5])
+    write_jsonl(old / "dev.jsonl", [{**r, "split": "dev"} for r in tests[5:8]])
+    monkeypatch.setenv("OLD_MIX", str(old))
+    sources = {"replay_eval": {"path": ["$OLD_MIX/test_in.jsonl", "$OLD_MIX/dev.jsonl"], "eval_cap": 10**6}, "b1": {}}
+    pools = build_pools(_cfg(tmp_path, sources, weights={"bool": 1.0}, eval_cap=10, dev_cap=2))
+    ids = {s: [json.loads(line)["id"] for line in eval_lines(pools, s)] for s in ("test_in", "dev")}
+    assert all(len(v) == len(set(v)) for v in ids.values()) and not set(ids["test_in"]) & set(ids["dev"])
+    assert len(pools.eval[("test_in", "replay_eval")]) == 5 and len(pools.eval[("dev", "replay_eval")]) == 3
+    alone = build_pools(_cfg(tmp_path, {"b1": {}}, weights={"bool": 1.0}, eval_cap=10, dev_cap=2))
+    picked = {json.loads(line)["id"] for s in ("test_in", "dev") for line in eval_lines(alone, s)}
+    replayed = {r["id"] for r in tests[:8]}
+    assert pools.dropped_dup == {"b1": len(picked & replayed)} and len(picked & replayed) >= 5   # 12 of 15 vs 8 of 15
+    assert set(ids["test_in"]) | set(ids["dev"]) == picked | replayed
+
+
 def test_replay_missing_file_names_the_source(tmp_path):
     with pytest.raises(FileNotFoundError, match="replay"):
         build_pools(_cfg(tmp_path, {"replay": {"path": "nowhere/train.e0.jsonl"}}, weights={"bool": 1.0}))
