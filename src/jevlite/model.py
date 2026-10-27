@@ -11,8 +11,12 @@ outside the PEFT wrapper, so they are always fully trainable.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import torch
 import torch.nn.functional as F
+import yaml
 from torch import nn
 from transformers import AutoModel
 
@@ -22,7 +26,7 @@ from .log import logger
 from .schema import PRIM_TYPES
 
 READOUTS = ("marker", "mean")
-INITS = ("base", "laya")
+INITS = ("base", "laya", "checkpoint")
 
 
 def load_laya_encoder(checkpoint: str = "base", attn_implementation: str = "sdpa") -> torch.nn.Module:
@@ -45,16 +49,47 @@ def load_laya_encoder(checkpoint: str = "base", attn_implementation: str = "sdpa
     return encoder.float()
 
 
+def resolve_checkpoint(spec: str) -> Path:
+    """A ``save_final`` folder: a local path, or ``hub:<owner>/<repo>/<folder in the repo>`` (downloaded once
+    into the HF cache; a private repo needs ``HF_TOKEN``), e.g. ``hub:Nefelim584/jevlite-runs/stage_a-full-s42/final``."""
+    if not spec.startswith("hub:"):
+        return Path(spec)
+    owner, repo, sub = spec.removeprefix("hub:").split("/", 2)
+    from huggingface_hub import snapshot_download
+
+    return Path(snapshot_download(f"{owner}/{repo}", allow_patterns=[f"{sub}/*"], token=os.environ.get("HF_TOKEN"))) / sub
+
+
 def load_base_encoder(cfg: dict, rt: Runtime) -> torch.nn.Module:
-    """The initial encoder weights selected by ``model.init``: ``base`` (``model.base`` from the Hub) or
-    ``laya`` (``model.laya_checkpoint``)."""
+    """The initial encoder weights selected by ``model.init``: ``base`` (``model.base`` from the Hub),
+    ``laya`` (``model.laya_checkpoint``) or ``checkpoint`` (the encoder of a ``save_final`` folder named by
+    ``model.init_checkpoint``: a later stage starts from an earlier one, e.g. Stage B from Stage A)."""
     m = cfg["model"]
     init = m.get("init", "base")
     if init == "base":
         return AutoModel.from_pretrained(m["base"], attn_implementation=rt.attn_implementation, dtype=torch.float32)
     if init == "laya":
         return load_laya_encoder(m.get("laya_checkpoint", "base"), rt.attn_implementation)
+    if init == "checkpoint":
+        path = resolve_checkpoint(m["init_checkpoint"])
+        logger.info("encoder initialised from {}", path)
+        return AutoModel.from_pretrained(path / "encoder", attn_implementation=rt.attn_implementation, dtype=torch.float32)
     raise ValueError(f"unknown model.init {init!r}, expected one of {INITS}")
+
+
+def load_checkpoint_heads(model: torch.nn.Module, cfg: dict) -> None:
+    """With ``model.init: checkpoint``, the heads (and temperatures) of that ``save_final`` folder too: the
+    later stage continues the earlier model, not only its encoder. The head layout must match."""
+    path = resolve_checkpoint(cfg["model"]["init_checkpoint"])
+    saved = yaml.safe_load((path / "jevlite.yaml").read_text())["model"]
+    for key in ("trunk_dim", "readout", "decision_layers"):
+        if saved.get(key) != cfg["model"].get(key):
+            raise ValueError(f"model.{key} = {cfg['model'].get(key)!r} does not match the checkpoint's {saved.get(key)!r} ({path})")
+    result = model.load_state_dict(torch.load(path / "heads.pt", map_location="cpu"), strict=False)
+    missing = [k for k in result.missing_keys if not k.startswith("encoder.")]
+    if result.unexpected_keys or missing:
+        raise ValueError(f"heads.pt of {path} does not match the model: missing {missing}, unexpected {result.unexpected_keys}")
+    logger.info("heads initialised from {}", path)
 
 
 def build_encoder(cfg: dict, rt: Runtime, mode: str | None = None) -> torch.nn.Module:
@@ -198,6 +233,8 @@ def build_model(cfg: dict, rt: Runtime, mode: str | None = None) -> JevLite:
         readout=m.get("readout", "marker"),
         decision_layers=m.get("decision_layers", 0),
     ).to(rt.device)
+    if m.get("init") == "checkpoint":
+        load_checkpoint_heads(model, cfg)
     trainable, total = count_parameters(model)
     head = sum(p.numel() for p in model.head_parameters())
     logger.info(

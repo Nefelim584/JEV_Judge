@@ -210,3 +210,65 @@ def test_eval_subset_per_primitive():
     assert Counter(r.type for r in sub) == {"bool": 3, "choice": 10, "score": 10}
     assert eval_subset(recs, {"bool": 3}, 42) == eval_subset(recs, {"bool": 3}, 42)
     assert [r.id for r in eval_subset(recs, 5, 42)] == [r.id for r in sorted(recs, key=lambda r: stable_hash(42, "eval", r.id))[:5]]
+
+
+def test_build_model_from_a_stage_checkpoint(setup, tokenizer, tiny, tmp_path, monkeypatch):
+    """``model.init: checkpoint`` (Stage B from Stage A): encoder and heads come from a save_final folder."""
+    from jevlite.checkpoint import save_final
+    from jevlite.device import resolve_runtime
+    from jevlite.model import build_model, resolve_checkpoint
+
+    cfg, _ = setup
+    trained = tiny()
+    with torch.no_grad():
+        for p in trained.parameters():
+            p.add_(torch.randn_like(p))          # not the fresh init: equality below means "loaded"
+    path = save_final(trained, tokenizer, cfg, tmp_path / "stage_a" / "final")
+    cfg = {**cfg, "model": {**cfg["model"], "init": "checkpoint", "init_checkpoint": str(path)},
+           "train": {**cfg["train"], "gradient_checkpointing": False}}
+    model = build_model(cfg, resolve_runtime(cfg), mode="full")
+    for (name, a), b in zip(trained.state_dict().items(), model.state_dict().values()):
+        assert torch.equal(a, b), name
+
+    bad = {**cfg, "model": {**cfg["model"], "trunk_dim": 16}}
+    with pytest.raises(ValueError, match="trunk_dim"):
+        build_model(bad, resolve_runtime(bad), mode="full")
+
+    import huggingface_hub
+    seen = {}
+    monkeypatch.setattr(huggingface_hub, "snapshot_download",
+                        lambda repo, allow_patterns, token=None: seen.update(repo=repo, patterns=allow_patterns) or "/cache/snap")
+    assert resolve_checkpoint("hub:Nefelim584/jevlite-runs/stage_a-full-s42/final") == Path("/cache/snap/stage_a-full-s42/final")
+    assert seen == {"repo": "Nefelim584/jevlite-runs", "patterns": ["stage_a-full-s42/final/*"]}
+
+
+def test_heads_get_their_own_learning_rate(setup, tokenizer, tiny):
+    """``train.lr.heads`` (todo, "Stage A — head learning rate"): trunk + heads in a second AdamW group, logged
+    as ``lr_heads``; ``head_drift`` shows they move. Unset, one group as in Stage A."""
+    cfg, root = setup
+    one = _run(copy.deepcopy(cfg), root, tokenizer, tiny(), "one_group", max_steps=4)
+    two_cfg = copy.deepcopy(cfg)
+    two_cfg["train"]["lr"]["heads"] = 100 * two_cfg["train"]["lr"]["full"]
+    two = _run(two_cfg, root, tokenizer, tiny(), "two_groups", max_steps=4)
+
+    def last_train(run):
+        rows = [json.loads(line) for line in (Path(run["run_dir"]) / "metrics.jsonl").read_text().splitlines()]
+        return [r for r in rows if r.get("kind", r.get("phase")) == "train" or "head_drift" in r][-1]
+
+    a, b = last_train(one), last_train(two)
+    assert "lr_heads" not in a and b["lr_heads"] == pytest.approx(100 * b["lr"])
+    assert b["head_drift"] > 5 * a["head_drift"] > 0
+
+
+def test_resume_with_a_separate_head_group_matches_uninterrupted_run(setup, tokenizer, tiny):
+    """Stage B spans several Kaggle sessions: the two-group optimizer state must resume exactly."""
+    cfg, root = setup
+    cfg = copy.deepcopy(cfg)
+    cfg["train"]["lr"]["heads"] = 10 * cfg["train"]["lr"]["full"]
+    full = tiny()
+    assert _run(cfg, root, tokenizer, full, "g_full")["status"] == "done"
+    assert _run(cfg, root, tokenizer, tiny(), "g_resumed", max_steps=2)["step"] == 2
+    resumed = tiny()
+    assert _run(cfg, root, tokenizer, resumed, "g_resumed")["step"] == 6
+    for (name, a), b in zip(full.named_parameters(), resumed.parameters()):
+        assert torch.allclose(a, b, atol=1e-6), name

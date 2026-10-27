@@ -208,7 +208,15 @@ def train(
     total_steps = sum(steps_per_epoch)
     params = [p for p in model.parameters() if p.requires_grad]
     lr = t["lr"][cfg["tuning"]["mode"]]
-    optimizer = make_optimizer(params, rt, lr=lr, weight_decay=t["weight_decay"])
+    # ``train.lr.heads``: trunk + heads in their own group (todo, "Stage A — head learning rate": at the encoder's
+    # 3e-5 they barely left their init). null keeps one group, the Stage A recipe and its checkpoints.
+    head_ids = {id(p) for p in model.head_parameters()}
+    lr_heads = t["lr"].get("heads")
+    groups = params if lr_heads is None else [
+        {"params": [p for p in params if id(p) not in head_ids], "lr": lr},
+        {"params": [p for p in params if id(p) in head_ids], "lr": float(lr_heads)},
+    ]
+    optimizer = make_optimizer(groups, rt, lr=lr, weight_decay=t["weight_decay"])
     from transformers import get_scheduler
 
     scheduler = get_scheduler(t.get("schedule", "linear"), optimizer, num_warmup_steps=int(t["warmup_ratio"] * total_steps), num_training_steps=total_steps)
@@ -273,6 +281,14 @@ def train(
             logger.info("eval step {} {}: {}", gstep, split, " ".join(f"{k} {v:.3f}" for k, v in sorted(row.items())))
         model.train()
 
+    # how far the trunk + heads have moved since this session started (relative L2): a check that they train
+    head_start = [p.detach().clone() for p in model.head_parameters()] if d.main else []
+
+    def head_drift() -> float:
+        num = sum(float((p.detach() - p0).float().norm() ** 2) for p, p0 in zip(model.head_parameters(), head_start))
+        den = sum(float(p0.float().norm() ** 2) for p0 in head_start)
+        return (num / den) ** 0.5 if den else 0.0
+
     log_every, eval_every = int(t.get("log_every_steps", 50)), int(t.get("eval_every_steps", 1000))
     every_s = 60 * float(ck.get("every_minutes", 40))
     t0 = last_ckpt = time.monotonic()
@@ -318,9 +334,13 @@ def train(
 
             if d.main and gstep % log_every == 0:
                 row = {k: sum(v) / len(v) for k, v in window.items()}
-                log.log("train", gstep, lr=scheduler.get_last_lr()[0], grad_norm=float(grad_norm), **row)
+                lrs = scheduler.get_last_lr()
+                extra = {"lr_heads": lrs[1]} if len(lrs) > 1 else {}
+                drift = head_drift()
+                log.log("train", gstep, lr=lrs[0], grad_norm=float(grad_norm), head_drift=drift, **extra, **row)
                 elapsed = time.monotonic() - t0
-                logger.info("step {}/{} epoch {} loss {:.4f} lr {:.2e} | {:.1f} min", gstep, total_steps, epoch, row["loss"], scheduler.get_last_lr()[0], elapsed / 60)
+                logger.info("step {}/{} epoch {} loss {:.4f} lr {:.2e}{} head drift {:.4f} | {:.1f} min", gstep, total_steps, epoch, row["loss"],
+                            lrs[0], f" heads {lrs[1]:.2e}" if len(lrs) > 1 else "", drift, elapsed / 60)
                 window.clear()
 
             now = time.monotonic()

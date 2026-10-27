@@ -5,8 +5,9 @@ seed: 42
 
 model:
   base: answerdotai/ModernBERT-large
-  init: base              # base (model.base from the Hub) | laya (Laya's encoder, TODO section 7; heads start fresh)
+  init: base              # base (model.base from the Hub) | laya (Laya's encoder, TODO section 7; heads start fresh) | checkpoint (encoder + heads of an earlier stage)
   laya_checkpoint: base   # base | typed-decisions (multilingual is mmBERT-base, not ModernBERT-large)
+  init_checkpoint: null   # init: checkpoint → a save_final folder (encoder + heads), local or hub:<owner>/<repo>/<folder>
   readout: marker         # marker ([MASK] in packed mode, [CLS] in pair mode) | mean (pair mode only)
   decision_layers: 0      # > 0: Laya-style transformer layers before the read-out (ablation)
   trunk_dim: 256
@@ -31,6 +32,7 @@ train:
   lr:
     lora: 2.0e-4
     full: 3.0e-5
+    heads: null               # trunk + heads in their own group at this LR; null = one group at the encoder LR (Stage A)
   warmup_ratio: 0.06
   schedule: linear        # linear | cosine
   weight_decay: 0.01
@@ -53,6 +55,10 @@ train:
                               # no-SA version: mixes/stage_a_nosa.yaml (experiment override)
   stage_b:
     max_len: 1024
+    epochs: 2                 # train.e0.jsonl, train.e1.jsonl of the mix
+    mix: mixes/stage_b.yaml   # built on Kaggle CPU by notebooks/kaggle/06_build_stage_b.ipynb (todo Phase 4b)
+    # starts from Stage A: --set model.init=checkpoint
+    #   --set model.init_checkpoint=hub:Nefelim584/jevlite-runs/stage_a-full-s42/final
 
 loss:
   weights: {choice: 1.0, score: 1.0, bool: 1.0}

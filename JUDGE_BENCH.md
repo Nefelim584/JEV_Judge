@@ -274,11 +274,12 @@ are reported in two slices, and the Stage A numbers below (re-scored from the sa
 runs) are the baseline every later stage is compared with on the same records.
 
 - **Held-out slice** (comparable across stages): CJB, FaithBench, HaluBench, RAGBench covidqa / cuad /
-  emanual / delucionqa / msmarco. 21,076 records.
+  emanual / delucionqa / msmarco. 21,054 records.
 - **In-distribution slice** (reported separately): RAGBench hotpotqa, finqa, tatqa, hagrid, expertqa,
-  techqa, pubmedqa. 10,224 records.
-- Both leave out the 49 overlap ids of section 8; the Stage B overlap ids are added once the Stage B mix
-  is built (`make_eval_v2.py --exclude`, repeatable), and this table is then re-scored.
+  techqa, pubmedqa. 7,630 records.
+- Both leave out the 49 overlap ids of section 8 and the 2,639 ids whose passages occur in the Stage B
+  training files (`stage_b` mix of 2026-10-27, `prefix` mode): 2,615 of them in the in-distribution
+  slice (RAGBench train and test share documents), 24 in the held-out one (22 HaluEval, 2 msmarco).
 - "Seen source" flags in the held-out slice: HaluBench pubmedqa (PubMedQA is trained via RAGBench);
   CJB's QA-Feedback pairs (ASQA, via Trust-Data).
 
@@ -286,9 +287,9 @@ runs) are the baseline every later stage is compared with on the same records.
 |---|---|---|---|---|---|---|
 | held-out: CJB | consistent accuracy | 1,984 | 0.332 [0.314, 0.354] | 0.312 | 0.090 | 0.024 |
 | held-out: FaithBench | balanced accuracy | 723 | 0.579 [0.538, 0.614] | 0.567 | 0.514 | 0.480 |
-| held-out: HaluBench | balanced accuracy | 14,895 | 0.732 [0.726, 0.740] | 0.716 | 0.734 | 0.645 |
+| held-out: HaluBench | balanced accuracy | 14,873 | 0.732 [0.725, 0.739] | 0.716 | 0.734 | 0.645 |
 | held-out: RAGBench, 5 subsets | balanced accuracy | 1,490 | 0.558 [0.515, 0.600] | 0.559 | 0.519 | 0.571 |
-| in-distribution: RAGBench, 7 subsets | balanced accuracy | 10,224 | 0.526 [0.512, 0.540] | 0.535 | 0.507 | 0.479 |
+| in-distribution: RAGBench, 7 subsets | balanced accuracy | 7,630 | 0.540 [0.523, 0.556] | 0.552 | 0.513 | 0.499 |
 
 - **The held-out RAGBench part is small** (1,490 records, intervals ±0.04, per subset ±0.07–0.13):
   changes of a few points there are noise. The sensitive held-out numbers are CJB and HaluBench.
@@ -296,7 +297,8 @@ runs) are the baseline every later stage is compared with on the same records.
 
 ```bash
 uv run python scripts/make_eval_v2.py --data data/public/{contextual_judge_bench,ragbench,halubench,faithbench}.jsonl \
-  --exclude docs/judge_bench/overlap_ids.txt --out docs/judge_bench/eval_v2
+  --exclude docs/judge_bench/overlap_ids.txt --exclude docs/judge_bench/eval_v2/stage_b_overlap_ids.txt \
+  --out docs/judge_bench/eval_v2
 P=data/judge_bench/kaggle/preds
 for s in heldout in_distribution; do
   uv run python scripts/judge_bench_report.py --data data/public/{contextual_judge_bench,ragbench,halubench,faithbench}.jsonl \
