@@ -19,6 +19,7 @@ import argparse
 import faulthandler
 import os
 import subprocess
+import sys
 from datetime import timedelta
 from pathlib import Path
 
@@ -92,9 +93,18 @@ def main(argv: list[str] | None = None) -> None:
             meta={"stack": args.stack, "commit": commit(), "overrides": args.set, "world_size": d.world},
         )
         logger.info("result: {}", result)
-    finally:
+    except BaseException:
+        # Print the error now and leave without destroy_process_group: it waits for the other ranks, which
+        # wait for this one in a collective, so the error would never show and the run would hang until the
+        # NCCL timeout. A non-zero exit makes torchrun stop the other ranks.
+        logger.exception("rank {} failed", d.rank)
         if d.world > 1:
-            dist.destroy_process_group()
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(1)
+        raise
+    if d.world > 1:
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":
