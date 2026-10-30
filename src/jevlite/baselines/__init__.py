@@ -14,16 +14,16 @@ def load_baseline(
     ``max_len``: NLI tokens per premise + hypothesis (default 512); jev-lite tokens per sequence
     (default: the ``encoding.max_len`` saved with the model).
 
-    ``batch_size`` (premise–hypothesis pairs per forward pass) and ``fp16`` apply to NLI only; Laya
-    already runs one batch per state and uses mixed precision on CUDA by itself.
+    ``batch_size`` (premise–hypothesis pairs per forward pass) applies to NLI only. ``fp16`` (CUDA
+    only) is autocast for NLI and jev-lite; Laya already uses mixed precision on CUDA by itself.
     """
     if name == "nli":
         from .nli import DEFAULT_MODEL, NLIZeroShot
 
         kw = {"batch_size": batch_size} if batch_size else {}
         return NLIZeroShot(model or DEFAULT_MODEL, device=device, max_len=max_len or 512, fp16=fp16, **kw)
-    if batch_size or fp16:
-        raise ValueError(f"--batch-size and --fp16 apply to the nli baseline only, not {name!r}")
+    if batch_size or (fp16 and name != "jevlite"):
+        raise ValueError(f"--batch-size applies to nli only and --fp16 to nli and jevlite, not {name!r}")
     if name == "laya":
         from .laya import LayaZeroShot
 
@@ -33,5 +33,5 @@ def load_baseline(
             raise ValueError("the jevlite baseline needs --model <run>/final")
         from .jevlite import JevLiteModel
 
-        return JevLiteModel(model, device=device, max_len=max_len)
+        return JevLiteModel(model, device=device, max_len=max_len, fp16=fp16)
     raise ValueError(f"unknown baseline {name!r}, expected one of {BASELINES}")

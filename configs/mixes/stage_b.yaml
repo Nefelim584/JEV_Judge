@@ -1,0 +1,56 @@
+# Stage B sampling mix: public judge data, option B (DATASETS.md section 8, todo Phase 4b).
+# Built on Kaggle CPU by notebooks/kaggle/06_build_stage_b.ipynb (no downloads on the laptop):
+#   python scripts/build_mix.py --config configs/mixes/stage_b.yaml --dir /tmp/public --out /kaggle/working/stage_b \
+#       --epochs 2 --batch-size 8
+# STAGE_A_MIX must point at the Stage A mix folder of the jevlite-mix dataset (train.e*.jsonl, test files).
+#
+# Keys as in stage_a.yaml; `path` reads an earlier mix instead of <dir>/<name>.jsonl (replay).
+# All numbers are a first guess: read mix_report.md of the smoke build and adjust before the full one.
+
+dir: data/public
+tokenizer: answerdotai/ModernBERT-large
+max_len: 1024               # = train.stage_b.max_len
+seed: 42
+
+total: 150000               # training records per epoch (Stage A: 300k at 512; 1024 costs ~2× per long record)
+primitive_weights: {bool: 0.7, choice: 0.15, score: 0.15}
+run_repeat: {score: 1.0}    # from Stage B on, every Score record at most once per run (STAGE_A.md section 7)
+max_repeat: 2.0
+eval_cap: 1000
+dev_cap: 300
+
+sources:
+  # --- replay of Stage A, against forgetting (~25% of the training records by the size estimate; the
+  # judge Bool pools add up to ~200k, so the replay needs ~100k unique records) ---
+  stage_a_replay:
+    path: ["$STAGE_A_MIX/train.e0.jsonl", "$STAGE_A_MIX/train.e1.jsonl"]
+    cap: 100000
+  # the Stage A test sets and dev, whole and unchanged: Stage A → B forgetting is measured on them
+  stage_a_eval:
+    # dev*.jsonl: optional, the Kaggle copy of jevlite-mix predates the dev split (todo, 2026-10-11 upload)
+    path: ["$STAGE_A_MIX/test_in.jsonl", "$STAGE_A_MIX/test_ood.jsonl", "$STAGE_A_MIX/dev*.jsonl"]
+    eval_cap: 1000000
+    dev_cap: 3000
+
+  # Score keeps its Stage A rubric data directly: the replay cap holds few unique Score records (HelpSteer was
+  # repeated in Stage A), and at 1024 tokens far more HelpSteer3 states fit (STAGE_A.md, todo Phase 3)
+  helpsteer2: {fit_only: true, cap: 30000}   # uncapped (~100k) it would be ~85% of Score and drown relevance
+  helpsteer3: {fit_only: true}
+
+  # --- judge data built by code (judge_train.py) ---
+  # fit_only: the label depends on the whole state (several chunks), so truncated records are dropped
+  ragbench_train: {cap: 45000, fit_only: true}
+  hotpotqa_judge: {cap: 40000, fit_only: true}
+  tatqa_judge: {cap: 20000, fit_only: true}
+  finqa_judge: {cap: 15000, fit_only: true}
+  clapnq_judge: {weight: 2.0, fit_only: true} # answerability (fixed), relevance (Score, criterion b), conciseness / completeness pairs
+
+  # --- new public sources (judge_public.py) ---
+  # fit_only on every judge source: a claim longer than max_len (a long LLM answer) cannot be encoded at
+  # all and would stop training on the GPU; the check drops it here instead
+  faithfulness_qa: {cap: 25000, fit_only: true}
+  minicheck: {fit_only: true}
+  trust_data: {fit_only: true}
+  psiloqa: {cap: 20000, fit_only: true}
+  qasper: {fit_only: true}
+  ragtruth: {fit_only: true}

@@ -1,8 +1,10 @@
+import json
 import random
 
 import pytest
 import torch
 
+from jevlite.calibration import CALIBRATION_FILE, calibrate_probs, load_calibration
 from jevlite.data.loader import TrainCollator
 from jevlite.data.unified import Record
 from jevlite.encoding import PackedEncoder
@@ -92,6 +94,60 @@ def test_predict_records_matches_predict(predictor):
     assert len(preds[0].probs) == 3 and preds[1].prob is not None
     single = predictor.predict(Request(state="text", questions=[records[0].to_question("x")])).answers["x"]
     assert preds[0].probs == pytest.approx(list(single.probabilities.values()), abs=1e-5)
+
+
+CALIBRATION = {"model": {"bool": {"a": 0.5}, "choice": {"a": 0.9, "b": -0.17}, "score": {"a": 0.45}},
+               "judge": {"scale": 0.8, "bias": -0.7}}
+MIXED = Request(state="I was charged twice", questions=[
+    ChoiceQuestion(id="c", prompt="Topic?", options=["refund", "billing", "spam", "other"]),
+    ScoreQuestion(id="s", prompt="How urgent?", levels=["low", "mid", "high"]),
+    BoolQuestion(id="b", prompt="The user is upset [MASK]."),
+])
+
+
+def _calibrated(predictor, layers):
+    return Predictor(predictor.model, predictor.encoder, calibration=CALIBRATION, layers=layers)
+
+
+@pytest.mark.parametrize("layers", [("model",), ("model", "judge")])
+def test_calibration_matches_post_hoc(predictor, layers):
+    raw = predictor.predict(MIXED).answers
+    cal = _calibrated(predictor, layers).predict(MIXED).answers
+    for q in MIXED.questions:
+        if q.type == "bool":
+            expected = calibrate_probs("bool", [raw[q.id].probability], CALIBRATION, layers)
+            assert cal[q.id].probability == pytest.approx(expected[0], abs=1e-6)
+            continue
+        expected = calibrate_probs(q.type, list(raw[q.id].probabilities.values()), CALIBRATION, layers)
+        assert list(cal[q.id].probabilities.values()) == pytest.approx(expected, abs=1e-6)
+        assert cal[q.id].value == raw[q.id].value  # a temperature keeps the argmax
+        assert cal[q.id].confidence < raw[q.id].confidence  # T > 1 flattens
+
+
+def test_calibration_off_by_default_and_layers_checked(predictor):
+    assert predictor.layers == () and predictor.calibration is None
+    raw = predictor.predict(MIXED).answers
+    off = _calibrated(predictor, ()).predict(MIXED).answers
+    assert off["b"].probability == pytest.approx(raw["b"].probability, abs=1e-6)
+    with pytest.raises(ValueError, match="unknown calibration layers"):
+        _calibrated(predictor, ("model", "jduge"))
+
+
+def test_calibration_refuses_a_second_set_of_temperatures(predictor):
+    predictor.model.log_temperature.fill_(0.3)
+    try:
+        with pytest.raises(ValueError, match="own temperatures"):
+            _calibrated(predictor, ("model",))
+        _calibrated(predictor, ("judge",))  # the judge layer alone is fine
+    finally:
+        predictor.model.log_temperature.zero_()
+
+
+def test_load_calibration(tmp_path):
+    assert load_calibration(tmp_path) is None  # a final folder without calibration.json: raw
+    (tmp_path / CALIBRATION_FILE).write_text(json.dumps(CALIBRATION))
+    assert load_calibration(tmp_path) == CALIBRATION
+    assert load_calibration(tmp_path / CALIBRATION_FILE) == CALIBRATION
 
 
 def test_train_collator_shuffles_choice_only(tokenizer):

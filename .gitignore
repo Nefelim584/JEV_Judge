@@ -30,3 +30,21 @@ dataset_dicr.md
 Lecture5_gate_lab/
 main.py
 package-lock.json
+
+# Working notes and per-stage reports: kept on disk, not in the repo (git history has the versions up to
+# v0.1.0 / Judge_bench). Public docs: README.md, docs/EVALUATION.md, docs/DATASETS.md, docs/releases/.
+/AGENTS.md
+/CLAUDE.md
+/BASELINES.md
+/DATASETS.md
+/JUDGE_BENCH.md
+/STAGE_A.md
+/STAGE_A_API.md
+/dataset_gen.md
+/judge_labeling_guide.md
+/docs/baselines/
+/docs/overview/
+/docs/presentation/
+/docs/stage_a/
+/docs/stage_a_api/
+/docs/judge_bench/figures/

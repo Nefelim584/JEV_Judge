@@ -51,7 +51,54 @@ ROWS = {
     "faitheval": ("test", {"task": "counterfactual", "idx": 0, "id": "Mercury_1", "question": "What melts ice?", "context": "Studies show cold melts ice.",
                            "choices": "{'label': ['A', 'B'], 'text': ['heat', 'cold']}", "answerKey": "B"}),
     "mmlu": ("test", {"idx": 0, "question": "2 + 2 =", "subject": "elementary_mathematics", "choices": ["3", "4", "5", "6"], "answer": 1}),
+    "contextual_judge_bench": ("faithfulness_qa", {"idx": 0, "problem_id": "p0", "question": "Who built it?", "context": "Ann built the bridge.",
+                                                   "positive_response": "Ann built it.", "negative_response": "Bo built it.", "source": "lfrqa"}),
+    "ragbench": ("test", {"subset": "hotpotqa", "idx": 0, "question": "Who built it?", "documents": ["Ann built the bridge.", ""],
+                          "response": "Bo built it.", "adherence_score": False, "generation_model_name": "gpt-3.5"}),
+    "ragbench_calib": ("train", {"subset": "cuad", "idx": 0, "question": "Who built it?", "documents": ["Ann built the bridge."],
+                                 "response": "Ann built it.", "adherence_score": True, "generation_model_name": "gpt-3.5"}),
+    "halubench": ("test", {"idx": 0, "passage": "The Rams scored twice.", "question": "Who scored?", "answer": "['Rams', 'Chiefs']",
+                           "label": "FAIL", "source_ds": "DROP"}),
+    "faithbench": ("test", {"idx": 0, "source": "The film grossed $1 million.", "summary": "The film grossed $1 million.", "LLM": "m",
+                            "worst-label": "Benign", "best-label": "Consistent"}),
     "nq": ("train", {"id": 3, "question": "who wrote the book", "title": "The Book", "passage": "The Book is a novel by Ann Lee.", "answerable": True}),
+    # judge training data (tests/test_judge_train.py has the label checks)
+    "ragbench_train": ("train", {"subset": "hagrid", "idx": 0, "id": "hagrid_1_0", "question": "When was Rolex founded?",
+                                 "documents": ["Rolex was founded in London in 1905.", "Omega is a Swiss watchmaker."],
+                                 "response": "Rolex was founded in 1905 in London.", "adherence_score": True,
+                                 "response_sentences": [["a", "Rolex was founded in 1905 in London."]],
+                                 "sentence_support_information": [{"response_sentence_key": "a", "supporting_sentence_keys": ["0a"], "fully_supported": True}],
+                                 "unsupported_response_sentence_keys": []}),
+    "hotpotqa_judge": ("train", {"id": "h1", "question": "Which is older, A or B?", "answer": "A", "type": "comparison", "level": "easy",
+                                 "supporting_facts": {"title": ["A", "B"], "sent_id": [0, 0]},
+                                 "context": {"title": ["A", "B", "C", "D", "E"],
+                                             "sentences": [["A was founded in 1900."], ["B was founded in 1950."], ["C is a river."],
+                                                           ["D is a town."], ["E is a band."]]}}),
+    "tatqa_judge": ("train", {"uid": "t1", "table_uid": "tab1", "question": "What was revenue in 2019?", "answer": ["1,200"],
+                              "answer_type": "span", "answer_from": "table", "scale": "thousand",
+                              "table": [["", "2019", "2018"], ["Revenue", "1,200", "1,000"]], "paragraphs": ["Revenue grew."]}),
+    "clapnq_judge": ("train", {"id": "c9", "input": "who wrote the book", "passages": [{"title": "Book", "text": "The book was written by Ann Lee. It sold well in Europe and Asia."}],
+                               "output": [{"answer": "Ann Lee wrote the book. She wrote it in 1990."}],
+                               "partner": {"id": "c8", "question": "when did the war end", "answer": "The war ended in 1945."}}),
+    "faithfulness_qa": ("train", {"id": "fq1", "question": "Who founded X?", "original_context": "X was founded by Ann.",
+                                  "modified_context": "X was founded by Bo.", "original_answer": "Ann", "faithful_answer": "Bo",
+                                  "entity_type": "PERSON", "source": "squad"}),
+    "minicheck": ("d2c", {"idx": 0, "claim": "The firm grew.", "doc": "The firm doubled its staff.", "label": 1}),
+    "trust_data": ("train", {"idx": 0, "source": "asqa", "question": "Who wrote X?", "docs": ["X\nX was written by Ann."],
+                             "chosen": "Ann wrote X [1].", "rejected": "Bo wrote X [1]."}),
+    "psiloqa": ("train", {"idx": 0, "id": "p1", "lang": "en", "wiki_title": "Acrijos", "wiki_passage": "Acrijos is a village in Soria.",
+                          "question": "Where is Acrijos?", "llm_answer": "Acrijos is in Soria. It has a famous castle.", "golden_answer": "It is a village in Soria.",
+                          "labels": "[[21, 44]]", "llm_checkpoint": "m"}),
+    "qasper": ("train", {"id": "q1", "full_text": {"paragraphs": [[f"Paragraph {i} " + "word " * 25 + ("the seed lexicon has 15 words." if i == 2 else "")] for i in range(8)]},
+                         "qas": {"question_id": ["a", "b"], "question": ["How big is the seed lexicon?", "What is the dataset?"],
+                                 "answers": [{"answer": [{"unanswerable": False, "free_form_answer": "15 words", "extractive_spans": [], "yes_no": None,
+                                                          "evidence": ["Paragraph 2 " + "word " * 25 + "the seed lexicon has 15 words."]}]},
+                                             {"answer": [{"unanswerable": True, "free_form_answer": "", "extractive_spans": [], "yes_no": None, "evidence": []}]}]}}),
+    "ragtruth": ("train", {"id": "r1", "source_id": "s1", "model": "m", "article": "The mayor opened a park on Monday.",
+                           "response": "The mayor opened a park on Monday. It cost $5 million.", "labels": [{"start": 35, "end": 54, "label_type": "Evident Baseless Info"}]}),
+    "finqa_judge": ("train", {"idx": 0, "id": "f1", "filename": "X/2009/page_1.pdf", "pre_text": ["revenue was $ 3.8 million ."],
+                              "post_text": ["."], "table_ori": [["", "2009"], ["revenue", "$3.8"]],
+                              "qa": {"question": "what was revenue?", "answer": "3.8", "gold_inds": {"text_0": "x"}}}),
 }
 
 
@@ -75,7 +122,8 @@ def test_convert_gives_valid_deterministic_records(name):
 
 
 def test_held_out_datasets_go_to_test_ood_only():
-    for name in ("contract_nli", "banking77", "llm_aggrefact", "faitheval", "mmlu"):
+    for name in ("contract_nli", "banking77", "llm_aggrefact", "faitheval", "mmlu",
+                 "contextual_judge_bench", "ragbench", "halubench", "faithbench"):
         split, row = ROWS[name]
         assert {r.split for r in get_converter(name).convert(row, split)} == {"test_ood"}
 
@@ -269,7 +317,9 @@ def test_mcqa_records_borrow_within_a_source_split(monkeypatch):
 
 def test_share_alike_flags():
     sa = {n for n, c in CONVERTERS.items() if c.share_alike}
-    assert sa == {"boolq", "snli", "qnli", "vitaminc", "squad_v2", "clapnq", "arc", "dbpedia14", "fever", "hover", "feverous", "nq"}
+    assert sa == {"boolq", "snli", "qnli", "vitaminc", "squad_v2", "clapnq", "arc", "dbpedia14", "fever", "hover", "feverous", "nq",
+                  "hotpotqa_judge", "clapnq_judge", "faithfulness_qa", "psiloqa"}
+    assert CONVERTERS["ragbench_train"].is_share_alike("ragbench/hotpotqa") and not CONVERTERS["ragbench_train"].is_share_alike("ragbench/tatqa")
     multi_nli = CONVERTERS["multi_nli"]
     assert multi_nli.is_share_alike("fiction") and not multi_nli.is_share_alike("travel")
 
@@ -285,3 +335,29 @@ def test_eval_only_sources():
     assert un.type == "bool" and un.target == 0.0 and un.domain == "faitheval/unanswerable/squad" and un.split == "test_ood"
     (mm,) = get_converter("mmlu").convert(ROWS["mmlu"][1], "test")
     assert mm.candidates[mm.target] == "4" and mm.domain == "mmlu/elementary_mathematics"
+
+
+def test_judge_benchmarks():
+    split, row = ROWS["contextual_judge_bench"]
+    a, b = get_converter("contextual_judge_bench").convert(row, split)
+    assert a.group == b.group and a.criterion == "faithfulness" and a.domain == "cjb/faithfulness_qa"
+    for r in (a, b):  # the positive response is the target in both orders
+        assert r.type == "choice" and r.candidates == ["response 1", "response 2"]
+        assert f"Response {r.target + 1}:\nAnn built it." in r.state
+    summ = get_converter("contextual_judge_bench").convert(row, "conciseness_summ")
+    assert [r.candidates for r in summ] == [["summary 1", "summary 2"]] * 2 and summ[0].criterion == "conciseness"
+    assert get_converter("contextual_judge_bench").convert({**row, "negative_response": "Ann built it."}, split) == []
+
+    (rag,) = get_converter("ragbench").convert(*reversed(ROWS["ragbench"]))
+    assert rag.type == "bool" and rag.target == 0.0 and rag.state == ["Ann built the bridge."] and rag.domain == "ragbench/hotpotqa"
+    assert "Who built it?" in rag.prompt and rag.prompt.endswith("Bo built it.")
+
+    (halu,) = get_converter("halubench").convert(*reversed(ROWS["halubench"]))
+    assert halu.target == 0.0 and halu.prompt.endswith("is: Rams, Chiefs") and halu.domain == "halubench/drop"
+
+    fb = get_converter("faithbench")
+    (ok,) = fb.convert(ROWS["faithbench"][1], "test")
+    assert ok.target == 1.0 and ok.prompt == "The film grossed $1 million."
+    (bad,) = fb.convert({**ROWS["faithbench"][1], "worst-label": "Unwanted"}, "test")
+    assert bad.target == 0.0
+    assert fb.convert({**ROWS["faithbench"][1], "worst-label": "Questionable"}, "test") == []

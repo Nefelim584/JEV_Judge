@@ -42,7 +42,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--limit", type=int, default=None, help="first N records only (smoke runs)")
     ap.add_argument("--max-len", type=int, default=None, help="NLI: max tokens per premise + hypothesis (default 512); jevlite: per sequence (default: as saved)")
     ap.add_argument("--batch-size", type=int, default=None, help="NLI only: premise-hypothesis pairs per forward pass (default 16)")
-    ap.add_argument("--fp16", action="store_true", help="NLI on CUDA only: fp16 autocast, ~3-4x faster on T4")
+    ap.add_argument("--fp16", action="store_true", help="NLI and jevlite, CUDA only: fp16 autocast, ~3-4x faster on T4")
     ap.add_argument("--block", type=int, default=64, help="NLI: states per call, so that pairs of different records share batches")
     ap.add_argument("--resume", action="store_true", help="keep --out and skip the records already in it")
     args = ap.parse_args(argv)

@@ -1,6 +1,6 @@
 [project]
 name = "jevlite"
-version = "0.1.0"
+version = "0.2.0"
 description = "Typed decision model: Choice / Score / Bool answers with calibrated probabilities"
 readme = "README.md"
 license = "Apache-2.0"
@@ -26,7 +26,7 @@ dependencies = [
 
 [project.urls]
 Repository = "https://github.com/Nefelim584/JEV_Judge"
-Model = "https://huggingface.co/Nefelim584/jev-lite-stage-a"
+Model = "https://huggingface.co/Nefelim584/jev-lite"
 
 [project.optional-dependencies]
 # MPS needs nothing beyond the core deps; the extra exists so both stacks install the same way.
@@ -41,6 +41,7 @@ export = [
     "optimum",
 ]
 reports = [
+    "markdown-it-py>=3",
     "matplotlib>=3.8",
     "plotly>=5.20",
 ]

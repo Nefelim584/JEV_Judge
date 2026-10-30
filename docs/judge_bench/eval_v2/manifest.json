@@ -1,0 +1,73 @@
+{
+  "data": [
+    "data/public/contextual_judge_bench.jsonl",
+    "data/public/ragbench.jsonl",
+    "data/public/halubench.jsonl",
+    "data/public/faithbench.jsonl"
+  ],
+  "exclude_files": [
+    "docs/judge_bench/overlap_ids.txt",
+    "docs/judge_bench/eval_v2/stage_b_overlap_ids.txt"
+  ],
+  "trained_domains": [
+    "ragbench/hotpotqa",
+    "ragbench/finqa",
+    "ragbench/tatqa",
+    "ragbench/hagrid",
+    "ragbench/expertqa",
+    "ragbench/techqa",
+    "ragbench/pubmedqa"
+  ],
+  "seen_source_flags": {
+    "halubench/pubmedqa": "PubMedQA via RAGBench pubmedqa",
+    "contextual_judge_bench (QA-Feedback / ASQA pairs)": "ASQA via Trust-Data, if its ASQA part is trained"
+  },
+  "n_records": 31425,
+  "n_overlap_excluded": 2675,
+  "heldout": {
+    "n": 21074,
+    "by_source": {
+      "contextual_judge_bench": 3986,
+      "faithbench": 723,
+      "halubench": 14874,
+      "ragbench": 1491
+    },
+    "by_domain": {
+      "cjb/completeness_qa": 492,
+      "cjb/completeness_summ": 502,
+      "cjb/conciseness_qa": 508,
+      "cjb/conciseness_summ": 488,
+      "cjb/faithfulness_qa": 496,
+      "cjb/faithfulness_summ": 500,
+      "cjb/refusal_answerable": 500,
+      "cjb/refusal_unanswerable": 500,
+      "faithbench": 723,
+      "halubench/covidqa": 1000,
+      "halubench/drop": 998,
+      "halubench/financebench": 1000,
+      "halubench/halueval": 9976,
+      "halubench/pubmedqa": 1000,
+      "halubench/ragtruth": 900,
+      "ragbench/covidqa": 246,
+      "ragbench/cuad": 510,
+      "ragbench/delucionqa": 184,
+      "ragbench/emanual": 132,
+      "ragbench/msmarco": 419
+    }
+  },
+  "in_distribution": {
+    "n": 7676,
+    "by_source": {
+      "ragbench": 7676
+    },
+    "by_domain": {
+      "ragbench/expertqa": 195,
+      "ragbench/finqa": 1906,
+      "ragbench/hagrid": 1215,
+      "ragbench/hotpotqa": 370,
+      "ragbench/pubmedqa": 910,
+      "ragbench/tatqa": 2822,
+      "ragbench/techqa": 258
+    }
+  }
+}
