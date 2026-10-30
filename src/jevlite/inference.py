@@ -1,11 +1,16 @@
 """Inference: ``predict(request) -> response`` (TODO 2.2, 2.8).
 
-    predictor = Predictor(model, text_encoder_from_config(cfg, tokenizer))
+    predictor = Predictor.from_final("runs/<run>/final")     # + its calibration.json, model layer
+    predictor = Predictor.from_final(path, layers=LAYERS)    # + the judge layer: every Bool is a faithfulness claim
+    predictor = Predictor(model, text_encoder_from_config(cfg, tokenizer))   # raw, as in training
     response = predictor.predict(request)                    # one forward pass for all questions
     preds = predictor.predict_records(records)               # unified records → eval predictions
 
-All questions of a request go into one batch; temperatures are applied; options keep the caller's
-order (no shuffling at inference). Confidence is the v1 heuristic ``1 − H(p) / log K`` (Bool: K = 2);
+All questions of a request go into one batch; options keep the caller's order (no shuffling at
+inference). Post-hoc calibration (``jevlite.calibration``, todo 2.7) is applied to the probabilities
+when the predictor has one: ``from_final`` reads the folder's ``calibration.json``, the constructor takes
+none by default, so training eval and saved predictions stay raw (the calibration is fitted on raw
+predictions). Confidence is the v1 heuristic ``1 − H(p) / log K`` (Bool: K = 2);
 the learned confidence head (v2) comes in Phase 7.
 
 The answer only ever names the request's own candidates, so it always lies inside the schema.
@@ -15,15 +20,17 @@ from __future__ import annotations
 
 import math
 import time
+from pathlib import Path
 from typing import Iterable, Sequence
 
 import torch
 
+from .calibration import DEFAULT_LAYERS, calibrate_probs, check_layers, load_calibration
 from .collate import TYPE_IDS, build_batch
 from .data.unified import Prediction, Record
-from .encoding import PackedEncoder, PairEncoder
+from .encoding import PackedEncoder, PairEncoder, text_encoder_from_config
 from .model import JevLite, question_probs
-from .schema import BoolAnswer, ChoiceAnswer, Meta, Question, Request, Response, ScoreAnswer
+from .schema import PRIM_TYPES, BoolAnswer, ChoiceAnswer, Meta, Question, Request, Response, ScoreAnswer
 
 
 def heuristic_confidence(probs: Sequence[float]) -> float:
@@ -58,11 +65,29 @@ def answer_for(question: Question, probs: Sequence[float]):
 
 
 class Predictor:
-    def __init__(self, model: JevLite, encoder: PackedEncoder | PairEncoder, name: str = "jev-lite-v1", amp_dtype: torch.dtype | None = None):
+    def __init__(self, model: JevLite, encoder: PackedEncoder | PairEncoder, name: str = "jev-lite-v1",
+                 amp_dtype: torch.dtype | None = None, calibration: dict | None = None,
+                 layers: Sequence[str] = DEFAULT_LAYERS):
+        """``calibration``: the content of a ``calibration.json``, applied with ``layers``; ``None``: raw."""
+        layers = check_layers(layers) if calibration else ()
+        if "model" in layers and calibration.get("model") and bool(model.log_temperature.any()):
+            raise ValueError("the model has its own temperatures; the model layer would apply a second set")
         self.model = model.eval()
         self.encoder = encoder
         self.name = name
         self.amp_dtype = amp_dtype
+        self.calibration = calibration
+        self.layers = layers
+
+    @classmethod
+    def from_final(cls, path: str | Path, device: str | torch.device = "cpu", layers: Sequence[str] = DEFAULT_LAYERS,
+                   max_len: int | None = None, amp_dtype: torch.dtype | None = None, name: str = "jev-lite-v1") -> Predictor:
+        """A ``save_final`` folder with its ``calibration.json`` if it has one; ``layers=()`` for raw outputs."""
+        from .checkpoint import load_final
+
+        model, tokenizer, cfg = load_final(path, device=device)
+        return cls(model, text_encoder_from_config(cfg, tokenizer, max_len), name=name, amp_dtype=amp_dtype,
+                   calibration=load_calibration(path), layers=layers)
 
     @property
     def device(self) -> torch.device:
@@ -78,6 +103,9 @@ class Predictor:
         n_real = batch.candidate_mask.sum(-1).tolist()
         is_bool = (batch.question_type == TYPE_IDS["bool"]).tolist()
         rows = [probs[q, : 1 if b else k].tolist() for q, (k, b) in enumerate(zip(n_real, is_bool))]
+        if self.layers:
+            prims = [PRIM_TYPES[t] for t in batch.question_type.tolist()]
+            rows = [calibrate_probs(prim, p, self.calibration, self.layers) for prim, p in zip(prims, rows, strict=True)]
         return rows, batch.truncated.cpu().tolist()
 
     def predict(self, request: Request) -> Response:

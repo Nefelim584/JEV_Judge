@@ -18,11 +18,17 @@ Two layers, applied in this order:
 Predictions carry probabilities, not logits. ``log p`` is a logit up to a per-question constant, which
 softmax ignores; the Bool logit is ``log(p / (1 − p))``. Probabilities are clipped to
 ``[EPS, 1 − EPS]`` first, so a saturated probability stays finite.
+
+Shipping: ``calibration.json`` (the output of ``scripts/calibrate.py fit``) goes into the model's
+``save_final`` folder; ``inference.Predictor.from_final`` reads it and applies the model layer by default,
+the judge layer on request (``layers=LAYERS``).
 """
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
+from pathlib import Path
 from typing import Iterable, Sequence
 
 import numpy as np
@@ -33,6 +39,8 @@ from .data.unified import Prediction, Record
 
 EPS = 1e-7
 LAYERS = ("model", "judge")
+DEFAULT_LAYERS = ("model",)  # the judge layer moves the Bool threshold: only for faithfulness claims
+CALIBRATION_FILE = "calibration.json"
 
 
 def _soft_target(r: Record, k: int) -> np.ndarray:
@@ -132,19 +140,47 @@ def fit_judge_layer(
     return {"scale": float(x[0]), "bias": float(x[1]), "balanced": balanced, "n": len(pairs), "positive_rate": pos}
 
 
-def apply(prim: str, p: Prediction, calibration: dict, layers: Sequence[str] = LAYERS) -> Prediction:
-    """``p`` (a prediction for a question of type ``prim``) with calibrated probabilities and confidence;
-    other fields (latency) are kept. The judge layer only touches Bool."""
+def check_layers(layers: Sequence[str]) -> tuple[str, ...]:
+    unknown = set(layers) - set(LAYERS)
+    if unknown:
+        raise ValueError(f"unknown calibration layers {sorted(unknown)}, expected some of {LAYERS}")
+    return tuple(layers)
+
+
+def load_calibration(path: str | Path) -> dict | None:
+    """The calibration in a ``save_final`` folder (its ``calibration.json``; ``None`` if it has none) or in
+    a JSON file."""
+    path = Path(path)
+    if path.is_dir():
+        path = path / CALIBRATION_FILE
+        if not path.exists():
+            return None
+    return json.loads(path.read_text())
+
+
+def calibrate_probs(prim: str, probs: Sequence[float], calibration: dict, layers: Sequence[str] = LAYERS) -> list[float]:
+    """Calibrated probabilities of one question of type ``prim``: Bool ``[P(true)]``, otherwise one per
+    option (returned as given if the model layer is off). The judge layer only touches Bool."""
     model, judge = calibration.get("model"), calibration.get("judge")
     if prim == "bool":
-        z = bool_logit(p.prob)
+        z = bool_logit(probs[0])
         if "model" in layers and model:
             z /= temperature(model, "bool")
         if "judge" in layers and judge:
             z = judge["scale"] * z + judge["bias"]
-        prob = float(_sigmoid(np.array(z)))
-        return p.model_copy(update={"prob": prob, "confidence": entropy_confidence(np.array([prob]))})
+        return [float(_sigmoid(np.array(z)))]
     if "model" not in layers or not model:
+        return list(probs)
+    return _softmax(option_logits(probs) / temperature(model, prim, len(probs))).tolist()
+
+
+def apply(prim: str, p: Prediction, calibration: dict, layers: Sequence[str] = LAYERS) -> Prediction:
+    """``p`` (a prediction for a question of type ``prim``) with calibrated probabilities and confidence;
+    other fields (latency) are kept. The judge layer only touches Bool."""
+    if prim == "bool":
+        prob = calibrate_probs(prim, [p.prob], calibration, layers)[0]
+        return p.model_copy(update={"prob": prob, "confidence": entropy_confidence(np.array([prob]))})
+    if "model" not in layers or not calibration.get("model"):
         return p
-    probs = _softmax(option_logits(p.probs) / temperature(model, prim, len(p.probs)))
+    probs = np.array(calibrate_probs(prim, p.probs, calibration, layers))
     return p.model_copy(update={"probs": probs.tolist(), "confidence": entropy_confidence(probs)})
