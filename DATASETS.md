@@ -321,8 +321,8 @@ CJB, HaluBench (NC), FaithBench (NC), FaithEval (research only), LLM-AggreFact (
 | Eval set | Status from Stage B on |
 |---|---|
 | CJB, FaithBench | unchanged, held-out slice; CJB's QA-Feedback (ASQA) part flagged "seen source" if Trust-Data's ASQA part is trained |
-| HaluBench | held-out slice; the pubmedqa part flagged "seen source" (RAGBench pubmedqa is trained). Its RAGTruth subset is the QA (MS MARCO) part, so training on the RAGTruth summaries cuts nothing |
-| RAGBench test: covidqa, cuad, emanual, delucionqa | held-out slice (never trained) |
+| HaluBench | held-out slice; the pubmedqa part flagged "seen source" (RAGBench pubmedqa is trained). Its RAGTruth subset is the QA (MS MARCO) part, so training on the RAGTruth summaries cuts nothing. **Added 2026-10-30: the HaluEval part (9,976 of 14,873) is also a "seen source"**: HaluEval QA is built on HotpotQA, which Stage B trains on (`hotpotqa_judge`, RAGBench hotpotqa); report HaluBench with and without it |
+| RAGBench test: covidqa, cuad, emanual, delucionqa | held-out slice (never trained). **Their train + validation splits fit the judge calibration layer** (user, 2026-10-30; `ragbench_calib`, `jevlite.calibration`): 2 parameters, minus every record whose passages occur in the RAGBench test, ≤ 1000 per subset, 2,972 records frozen in `docs/judge_bench/calib/ragbench_calib_ids.txt` |
 | RAGBench test: hotpotqa, finqa, tatqa, hagrid, expertqa, techqa, pubmedqa | **in-distribution slice**, reported separately, no longer OOD |
 | RAGBench test: msmarco | unchanged (never trained) |
 | LLM-AggreFact | held-out; the ExpertQA part flagged "seen source"; WiCE claims checked against MiniCheck C2D |

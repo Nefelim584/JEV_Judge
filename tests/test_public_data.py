@@ -55,6 +55,8 @@ ROWS = {
                                                    "positive_response": "Ann built it.", "negative_response": "Bo built it.", "source": "lfrqa"}),
     "ragbench": ("test", {"subset": "hotpotqa", "idx": 0, "question": "Who built it?", "documents": ["Ann built the bridge.", ""],
                           "response": "Bo built it.", "adherence_score": False, "generation_model_name": "gpt-3.5"}),
+    "ragbench_calib": ("train", {"subset": "cuad", "idx": 0, "question": "Who built it?", "documents": ["Ann built the bridge."],
+                                 "response": "Ann built it.", "adherence_score": True, "generation_model_name": "gpt-3.5"}),
     "halubench": ("test", {"idx": 0, "passage": "The Rams scored twice.", "question": "Who scored?", "answer": "['Rams', 'Chiefs']",
                            "label": "FAIL", "source_ds": "DROP"}),
     "faithbench": ("test", {"idx": 0, "source": "The film grossed $1 million.", "summary": "The film grossed $1 million.", "LLM": "m",

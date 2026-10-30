@@ -129,6 +129,23 @@ class RAGBench(Converter):
         )]
 
 
+class RAGBenchCalib(RAGBench):
+    """Train + validation of the 4 held-out RAGBench subsets, in the eval form of :class:`RAGBench`: the
+    judge layer of ``jevlite.calibration`` is fitted on them (user, 2026-10-30). Never trained on and not
+    in eval v2 (which holds their test split); msmarco stays out (NC). Train and test share documents:
+    records whose passages occur in the RAGBench test file are dropped with ``overlap_ids.py``."""
+
+    name = "ragbench_calib"
+    license = "CC BY 4.0; labels by GPT-4o; calibration only"
+    origin = "hf:galileo-ai/ragbench, train + validation of covidqa, cuad, delucionqa, emanual"
+    held_out = False
+    splits = {"train": "calib", "validation": "calib"}
+    SUBSETS = ("covidqa", "cuad", "delucionqa", "emanual")
+
+    def convert(self, row: dict, source_split: str) -> Iterable[Record]:
+        return [r.model_copy(update={"split": "calib"}) for r in super().convert(row, source_split)]
+
+
 class HaluBench(Converter):
     name = "halubench"
     domain = "halubench"
