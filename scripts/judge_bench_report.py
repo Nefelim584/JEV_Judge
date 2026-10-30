@@ -10,6 +10,10 @@ Metrics are computed on the records **every** model predicted (a record a model 
 longer than its max_len, drops out for all), minus ``--exclude`` (passages seen in training). With
 ``--tokenizer``, each table also gets a ``fits512`` slice: records whose packed sequence fits 512 tokens
 untruncated, the training length of Stage A.
+
+Every table also gets the response time of each model, from ``latency_ms`` of its predictions (written by
+``predict_baseline.py``: the wall time of one model call, tokenisation to probabilities, divided by the
+questions in that call), as p50 / p95 / mean in milliseconds per record, per slice and over all records.
 """
 
 from __future__ import annotations
@@ -19,11 +23,22 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
+import numpy as np
+
 from jevlite.data.unified import load_predictions, load_records
 from jevlite.evaluation import json_safe
 from jevlite.judge_bench import bool_summary, pairwise_summary
 
 FIT_LEN = 512
+LATENCY = ("p50", "p95", "mean")
+
+
+def _latency(preds) -> dict | None:
+    """p50 / p95 / mean of ``latency_ms`` in milliseconds; None when the predictions carry no timing."""
+    lat = [p.latency_ms for p in preds if p.latency_ms is not None]
+    if not lat:
+        return None
+    return {"p50": float(np.percentile(lat, 50)), "p95": float(np.percentile(lat, 95)), "mean": float(np.mean(lat))}
 
 
 def _fits(records, tokenizer_path: str) -> set[str]:
@@ -68,14 +83,18 @@ def main(argv: list[str] | None = None) -> None:
 
     report = {
         "n_records": len(records), "n_excluded": len(excluded & {r.id for r in records}), "n_common": len(common),
-        "missing": {name: sum(r.id not in p for r in records) for name, p in preds.items()}, "benchmarks": {},
+        "missing": {name: sum(r.id not in p for r in records) for name, p in preds.items()},
+        "latency_ms": {name: _latency([p[r.id] for r in common]) for name, p in preds.items()}, "benchmarks": {},
     }
     for source, by_slice in sorted(slices.items()):
         rows = {}
         for name, slice_records in by_slice.items():
             pairwise = slice_records[0].type == "choice"
             fn = pairwise_summary if pairwise else bool_summary
-            rows[name] = {m: fn(slice_records, [p[r.id] for r in slice_records], args.bootstrap) for m, p in preds.items()}
+            rows[name] = {}
+            for m, p in preds.items():
+                slice_preds = [p[r.id] for r in slice_records]
+                rows[name][m] = fn(slice_records, slice_preds, args.bootstrap) | {"latency_ms": _latency(slice_preds)}
         report["benchmarks"][source] = rows
 
     out = Path(args.out)
@@ -93,11 +112,18 @@ def _cell(m: dict, key: str) -> str:
     return f"{v:.3f}" + (f" [{ci[0]:.3f}, {ci[1]:.3f}]" if ci else "")
 
 
+def _lat_cell(lat: dict | None) -> str:
+    return " / ".join(f"{lat[k]:.1f}" for k in LATENCY) if lat else "—"
+
+
 def _markdown(report: dict, models: list[str]) -> str:
     lines = ["# Judge benchmarks", "",
              f"{report['n_common']} records predicted by every model, of {report['n_records']}; "
              f"{report['n_excluded']} left out for passage overlap with training. "
-             "Missing per model (skipped or not run): " + ", ".join(f"{k} {v}" for k, v in report["missing"].items()) + ".", ""]
+             "Missing per model (skipped or not run): " + ", ".join(f"{k} {v}" for k, v in report["missing"].items()) + ".", "",
+             "## Response time, ms per record (p50 / p95 / mean)", "",
+             "| Records | n | " + " | ".join(models) + " |", "|---|---|" + "---|" * len(models),
+             f"| all | {report['n_common']} | " + " | ".join(_lat_cell(report["latency_ms"][m]) for m in models) + " |", ""]
     for source, rows in report["benchmarks"].items():
         pairwise = "n_pairs" in next(iter(rows["all"].values()))
         keys = ("consistent_accuracy", "accuracy", "picks_first") if pairwise else ("balanced_accuracy", "auroc", "accuracy")
@@ -108,6 +134,12 @@ def _markdown(report: dict, models: list[str]) -> str:
             first = next(iter(rows[name].values()))
             n = first["n_pairs"] if pairwise else first["n"]
             lines.append(f"| {name} | {n} | " + " | ".join(_cell(rows[name][m], k) for k in keys for m in models) + " |")
+        lines += ["", "Response time, ms per record (p50 / p95 / mean):", "",
+                  "| Slice | n | " + " | ".join(models) + " |", "|---|---|" + "---|" * len(models)]
+        for name in (k for k in order if k in rows):
+            first = next(iter(rows[name].values()))
+            n = first["n_pairs"] if pairwise else first["n"]
+            lines.append(f"| {name} | {n} | " + " | ".join(_lat_cell(rows[name][m].get("latency_ms")) for m in models) + " |")
         lines.append("")
     return "\n".join(lines)
 
