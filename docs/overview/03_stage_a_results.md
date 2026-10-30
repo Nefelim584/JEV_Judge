@@ -1,11 +1,13 @@
-# Part 3. Stage A results and the comparison with the JEV API
+# Part 3. Model test results: Stage A, the JEV API, and Stage B
 
-> jev-lite overview, October 2026 · Part 3 of 5 ·
+> jev-lite overview, October 2026 (revised 2026-10-30 for Stage B) · Part 3 of 5 ·
 > [← Previous: Data and methodology](02_data_and_methodology.md) · [Index](README.md) ·
 > [Next: Judge benchmarks →](04_judge_benchmarks.md)
 >
-> Model: run `stage_a-full-s42` (= `Nefelim584/jev-lite-stage-a`). Clean test sets of Part 2,
-> section 4.2. Full reports: `STAGE_A.md`, `STAGE_A_API.md`, `BASELINES.md`.
+> Sections 6.1–6.6: run `stage_a-full-s42` (= `Nefelim584/jev-lite-stage-a`) on the clean test sets of
+> Part 2, section 4.3; full reports `STAGE_A.md`, `STAGE_A_API.md`, `BASELINES.md`. The JEV API was
+> compared with Stage A only. Sections 6.7–6.8: Stage B (`stage_b-full-s42-r1`) against Stage A on the
+> same records, and the calibration.
 
 ## 6. Results
 
@@ -71,18 +73,18 @@ on FEVER and on multi-hop HoVer at every hop count; JEV leads on held-out legal 
   (AUROC 0.93 vs 0.88), but its probabilities are shifted down, so at the 0.5 threshold it calls half
   of the supported claims unsupported. On a new domain the model is **too strict, not too lenient**.
 
-### 6.4 Calibration and the cascade
+### 6.4 Calibration and confidence
 
 ![Risk vs coverage](../stage_a_api/figures/risk_coverage.png)
 
-*Error rate when only the most confident share is answered. Lower and flatter is better for a cascade.*
+*Error rate when only the most confident share is answered. Lower and flatter means the confidence separates right from wrong answers better.*
 
 - jev-lite's confidence separates right from wrong answers: on Bool and Choice its error stays near
   zero for the most confident 10–20% and rises slowly; the open baselines' curves rise almost linearly
   from the start.
-- On Stage A's full test set, escalating the 20% least confident Bool answers raises jev-lite's
-  accuracy from 0.88 to 0.95 (first-version numbers in `STAGE_A.md` section 5). This is what makes
-  the cascade viable.
+- On Stage A's full test set, the 80% most confident Bool answers are 0.95 accurate against 0.88 for
+  all of them (first-version numbers in `STAGE_A.md` section 5): the confidence tells which verdicts
+  to trust.
 
 ### 6.5 Behaviour probes
 
@@ -119,5 +121,46 @@ round trips.
 jev-lite on a laptop GPU is faster than a JEV API call at every input length in the test sets: 4.2×
 on the shortest fifth, 1.3× on the longest; no network and no per-call cost. A server GPU would be
 faster still. JEV's side scales by running requests in parallel.
+
+Server-GPU numbers for Stage B, including long inputs, are in Part 4, section 7.6.
+
+### 6.7 Stage B against Stage A on the same tests
+
+Stage B was trained on new judge data with a 26% replay of Stage A's data. The question here is what it
+forgot. Paired comparison on 47,557 records of the Stage A tests (`test_in` + `test_ood`):
+
+| Primitive | n | Stage A | Stage B | Δ [95% CI] | Verdict |
+|---|---|---|---|---|---|
+| Bool | 17,358 | 0.883 | 0.870 | −1.3 [−1.7, −0.9] | loss (−0.7 without ClapNQ) |
+| Choice | 27,979 | 0.800 | 0.789 | −1.1 [−1.4, −0.7] | loss |
+| Score | 2,220 | 0.599 | 0.633 | **+3.4** [+1.8, +5.0] | win |
+
+- **Score improved** (HelpSteer2 +3.3): the rubric criterion (b) of the judge got better.
+- **Bool losses are small and expected.** The biggest is ClapNQ, 1.000 → 0.830: the Stage A shortcut
+  is gone (Part 2, section 4.6). Then SQuAD 2.0 −2.0 and QNLI −1.8. Faithfulness sources are flat
+  (FEVER, HoVer, VitaminC, MultiNLI ties); TabFact +1.2 (tie).
+- **Choice lost on reasoning multiple choice** (Cosmos QA −5.2, CommonsenseQA −3.6) and gained on
+  WANLI +4.3. These sources are not needed by the judge.
+- **On the new sources' own tests** Stage B reaches Bool accuracy from 0.72 (FinQA) to 0.99 (Faithfulness-QA): RAGBench 0.90, HotpotQA 0.91,
+  TAT-QA 0.87, Qasper 0.79; 0.90 on Trust-Data pairs. These sources are
+  in-distribution; the honest test is the held-out judge benchmarks of Part 4.
+- **Choice became overconfident**: mean confidence 0.91 at accuracy 0.80, ECE 0.05 → 0.11. The
+  replayed Choice records were seen for the 3rd–4th time (train accuracy 0.97). Calibration fixes it
+  (next section).
+
+### 6.8 Calibration
+
+The model layer of the calibration (Part 2, section 5.2) on the same Stage A tests, which it was not
+fitted on. Answers do not change, so accuracy is the same; only the probabilities move:
+
+| Primitive | ECE `test_in`: raw → calibrated | ECE `test_ood`: raw → calibrated | Log loss `test_ood` |
+|---|---|---|---|
+| Bool | 0.058 → **0.014** | 0.068 → **0.033** | 0.37 → 0.32 |
+| Choice | 0.115 → **0.026** | 0.113 → **0.024** | 0.72 → 0.56 |
+| Score | 0.086 → **0.036** | 0.095 → **0.032** | 0.95 → 0.90 |
+
+After calibration, "the model says 80%" means about 80% again on all three primitives, which is what
+any decision threshold on the probabilities relies on. The effect of the optional judge layer on the judge
+benchmarks is in Part 4, section 7.4.
 
 [Next: Judge benchmarks →](04_judge_benchmarks.md)

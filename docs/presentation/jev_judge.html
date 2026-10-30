@@ -240,7 +240,7 @@ b,strong{color:var(--ink);font-weight:650}
     <div class="card"><h3>💸 Cost per decision</h3><p>Checks that are too expensive with an LLM become affordable at scale: every message, every document.</p></div>
     <div class="card"><h3>⏱ Real-time</h3><p>Milliseconds instead of seconds, so it fits inside user-facing flows.</p></div>
     <div class="card"><h3>🧩 No parsing failures</h3><p>Typed output plugs straight into code: no retries, no broken JSON.</p></div>
-    <div class="card"><h3>⚖️ Thresholds &amp; escalation</h3><p>Calibrated probabilities let you trade accuracy for coverage and escalate only the unsure cases.</p></div>
+    <div class="card"><h3>⚖️ Calibrated probabilities</h3><p>Every verdict comes with how sure it is; the decision threshold is set per criterion.</p></div>
   </div>
   <p class="note">Examples: support ticket triage · contract clause review · content moderation · RAG answer QA</p>
 </section>
@@ -254,7 +254,7 @@ b,strong{color:var(--ink);font-weight:650}
     <div class="r">Latency</div><div>Seconds</div><div class="win">~100 ms</div>
     <div class="r">Cost</div><div>Tokens per call</div><div class="win">One small model</div>
     <div class="r">New criterion</div><div>Edit the prompt</div><div class="win">Add a question</div>
-    <div class="r">Uncertainty</div><div>Often overconfident</div><div class="win">Escalate low confidence</div>
+    <div class="r">Uncertainty</div><div>Often overconfident</div><div class="win">Calibrated probability</div>
   </div>
 </section>
 
@@ -270,7 +270,7 @@ b,strong{color:var(--ink);font-weight:650}
     </table>
     <div style="flex:1">
       <div class="card" style="margin-bottom:16px"><h3>Per-claim verdict</h3><p>Shows which sentence is unsupported and which chunk supports the rest.</p></div>
-      <div class="card"><h3>Cascade</h3><p>Confident → JEV answers. Unsure → escalate to the LLM judge.</p></div>
+      <div class="card"><h3>Calibrated verdict</h3><p>Each claim and the whole answer get a probability, not just yes / no.</p></div>
     </div>
   </div>
   <p class="note">Second criterion: does the answer address the question? (Score rubric)</p>
@@ -349,14 +349,14 @@ b,strong{color:var(--ink);font-weight:650}
   <h2>Roadmap</h2>
   <div class="road">
     <div class="step done"><div class="dot">✓</div><h3>Stage A</h3><p>Public data, evaluation, v0.1.0</p></div>
-    <div class="step now"><div class="dot">B</div><h3>Stage B</h3><p>Synthetic data from a teacher LLM: new domains, refusals, hard negatives</p></div>
-    <div class="step"><div class="dot">C</div><h3>Calibration &amp; long context</h3><p>Confidence head, temperatures, inputs up to 8k tokens</p></div>
-    <div class="step"><div class="dot">J</div><h3>Judge pipeline</h3><p>Claims × chunks, relevance, cascade</p></div>
-    <div class="step"><div class="dot">P</div><h3>Production test</h3><p>Human-labelled answers from our system</p></div>
+    <div class="step done"><div class="dot">✓</div><h3>Stage B + calibration</h3><p>Public judge data: refusals, tables, real RAG answers; calibrated probabilities</p></div>
+    <div class="step now"><div class="dot">C</div><h3>Synthetic data &amp; long context</h3><p>Teacher LLM, our domain, inputs up to 8k tokens; speed on a server GPU</p></div>
+    <div class="step"><div class="dot">J</div><h3>Judge pipeline</h3><p>Claims × chunks, relevance</p></div>
+    <div class="step"><div class="dot">P</div><h3>Production test</h3><p>Our answers vs the production judge and human labels</p></div>
   </div>
   <div class="card" style="margin-top:auto;background:var(--accent-soft)">
-    <h3 style="color:var(--accent)">Success criterion (fixed before training)</h3>
-    <p style="color:var(--ink)">The cascade sends ≤ 40% of answers to the LLM judge and agrees with humans within 0.1 κ of the LLM judge, for both faithfulness and relevance, at ≤ 50% of the cost.</p>
+    <h3 style="color:var(--accent)">Target</h3>
+    <p style="color:var(--ink)">≥ 95% agreement with the production LLM judge, for both faithfulness and relevance; ≤ 100 ms per request at 8k tokens.</p>
   </div>
 </section>
 
