@@ -15,7 +15,9 @@ GPU × variant × length) and ``report.md`` (tables per GPU and all GPUs at 8k).
 
 Setup once: ``uv run --extra bench modal setup`` (log in). The model is the public release
 ``Nefelim584/jev-lite@v0.2.0`` (weights + ``calibration.json``), so no Hugging Face secret is needed.
-The model (~1.6 GB) and the Hub kernels are cached in the Modal volume ``jevlite-hf-cache``.
+The model (~1.6 GB) and the Hub kernels are cached in the Modal volume ``jevlite-hf-cache``; each GPU
+also saves its JSON there (``speed/<gpu>-<time>.json``), fetch with
+``modal volume get jevlite-hf-cache speed/ data/speed/modal/volume/`` if the local run was cut off.
 
 Image: ``uv sync --frozen --extra bench`` from this repo's ``uv.lock`` (the same torch / transformers as
 locally) plus the ``jevlite`` source. FlashAttention comes from the Hub through ``kernels``, no
@@ -46,7 +48,8 @@ image = (
 hf_cache = modal.Volume.from_name("jevlite-hf-cache", create_if_missing=True)
 
 
-@app.function(image=image, gpu="H100!", timeout=3 * 3600, volumes={HF_CACHE: hf_cache})
+# cpu=4: tokenisation runs on the CPU and is part of the response time; Modal's default share is a fraction of a core.
+@app.function(image=image, gpu="H100!", cpu=4.0, memory=16384, timeout=3 * 3600, volumes={HF_CACHE: hf_cache})
 def bench(variants: list[str] | None, lengths: list[int], n_warmup: int, n_runs: int, throughput_batch: int,
           n_throughput: int) -> dict:
     from huggingface_hub import snapshot_download
@@ -61,7 +64,18 @@ def bench(variants: list[str] | None, lengths: list[int], n_warmup: int, n_runs:
                            n_throughput, log=lambda s: print(s, flush=True))
     result["model"] = f"{MODEL_REPO}@{REVISION}"
     result["calibration"] = (final / "calibration.json").exists()
-    hf_cache.commit()  # Hub kernels downloaded during the run
+    # A copy on the volume, so the results survive a closed laptop:
+    #   modal volume get jevlite-hf-cache speed/ data/speed/modal/volume/
+    import datetime
+    import json
+    import re
+
+    stamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%d-%H%M%S")
+    out = Path(HF_CACHE) / "speed" / f"{re.sub(r'[^A-Za-z0-9_-]+', '_', result['env'].get('gpu', 'gpu'))}-{stamp}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(result, indent=2))
+    print(f"saved to volume jevlite-hf-cache: {out.relative_to(HF_CACHE)}", flush=True)
+    hf_cache.commit()  # Hub kernels downloaded during the run, and the copy
     return result
 
 
