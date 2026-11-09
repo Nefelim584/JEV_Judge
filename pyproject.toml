@@ -40,6 +40,12 @@ export = [
     "onnxruntime",
     "optimum",
 ]
+# Latency on Modal GPUs (scripts/modal_latency.py): the client, and Hub attention kernels (FlashAttention
+# without building flash-attn).
+bench = [
+    "kernels>=0.10",
+    "modal>=1.6",
+]
 reports = [
     "markdown-it-py>=3",
     "matplotlib>=3.8",
