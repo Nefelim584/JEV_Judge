@@ -46,6 +46,12 @@ bench = [
     "kernels>=0.17,<0.18",  # transformers 5.18 requires 0.17.x
     "modal>=1.6",
 ]
+# jev-lite as a judge endpoint on Modal (scripts/modal_serve.py): Modal web endpoints need FastAPI in the image.
+serve = [
+    "fastapi[standard]>=0.115",
+    "kernels>=0.17,<0.18",
+    "modal>=1.6",
+]
 reports = [
     "markdown-it-py>=3",
     "matplotlib>=3.8",
