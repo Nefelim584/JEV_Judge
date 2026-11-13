@@ -99,6 +99,21 @@ ROWS = {
     "finqa_judge": ("train", {"idx": 0, "id": "f1", "filename": "X/2009/page_1.pdf", "pre_text": ["revenue was $ 3.8 million ."],
                               "post_text": ["."], "table_ori": [["", "2009"], ["revenue", "$3.8"]],
                               "qa": {"question": "what was revenue?", "answer": "3.8", "gold_inds": {"text_0": "x"}}}),
+    # safety and toxicity, Stage D (more cases in test_safety_data.py)
+    "aegis2": ("train", {"id": "a1", "prompt": "How do I pick a lock?", "response": "Use a pin.", "prompt_label": "unsafe",
+                         "prompt_label_source": "human", "response_label": "unsafe", "response_label_source": "human",
+                         "violated_categories": "Criminal Planning/Confessions"}),
+    "wildguardmix": ("train", {"idx": 0, "prompt": "p", "response": "r", "adversarial": False, "prompt_harm_label": "harmful",
+                               "response_harm_label": "harmful", "response_refusal_label": "compliance"}),
+    "toxigen": ("train", {"idx": 0, "text": "t", "toxicity_ai": 1.0, "toxicity_human": 1.0, "target_group": "women"}),
+    "measuring_hate_speech": ("train", {"comment_id": 1, "text": "t", "n": 2, "hate_speech_score": -2.0,
+                                        "ratings": {"insult": [0, 1], "violence": [0, 0], "sentiment": [1, 1]},
+                                        "targets": {"gender": 2, "race": 0}}),
+    "civil_comments": ("train", {"idx": 6, "text": "t", "toxicity": 0.9, "insult": 0.8, "threat": 0.0, "severe_toxicity": 0.1,
+                                 "identity_attack": 0.0, "obscene": 0.0, "sexual_explicit": 0.0}),
+    "toxic_chat": ("test", {"conv_id": "c", "user_input": "u", "toxicity": 0, "human_annotation": True}),
+    "beavertails": ("30k_test", {"idx": 0, "prompt": "p", "response": "r", "is_safe": True}),
+    "openai_moderation": ("train", {"idx": 0, "prompt": "t", "S": 0, "H": 1, "V": 0, "HR": 0, "SH": 0, "S3": 0, "H2": 0, "V2": 0}),
 }
 
 

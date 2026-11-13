@@ -377,7 +377,11 @@ def train(
         predictor = Predictor(model, text_encoder, amp_dtype=rt.amp_dtype)
         preds = [p for split in final_splits if split in eval_sets for p in predictor.predict_records(eval_sets[split], eval_bs)]
         write_jsonl(run_dir / "preds.jsonl", preds)
-        final = save_final(model, tokenizer, cfg, run_dir / "final")
+        # the saved encoding.max_len is the length the model runs at after training (Predictor.from_final),
+        # not the base 512: encoding.final_max_len (8192, the v0.2.0 release setting), else the stage's length
+        final_len = int(cfg["encoding"].get("final_max_len") or stage_cfg["max_len"])
+        final_cfg = {**cfg, "encoding": {**cfg["encoding"], "max_len": final_len}}
+        final = save_final(model, tokenizer, final_cfg, run_dir / "final")
         store.upload_folder(final, "final")
         store.upload_files(run_files() + [run_dir / "preds.jsonl"])
     if d.main:

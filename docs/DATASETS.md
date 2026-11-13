@@ -82,6 +82,28 @@ Plus a replay of the Stage A training data (26% of the records) against forgetti
 - **Left out:** ConditionalQA (no license, research only); Trust-Data's ELI5 part (no license); RAGTruth's
   "Recent News" articles (unclear terms).
 
+### 2.3 Stage D: safety and toxicity (planned; order B → D → C)
+
+Built by `src/jevlite/data/public/safety.py` (approved 2026-11-13). Stage D starts from Stage B, and Stage C
+(the eval stand) starts from Stage D and replays it, so the production judge's criteria come last.
+
+| Dataset | What we build | License | Labels |
+|---|---|---|---|
+| Aegis 2.0 train | Bool "the user's message is harmful", Bool "the response is harmful", Choice of the violated category (one-category rows) | CC BY 4.0 | prompts: human; responses: human or an LLM jury |
+| WildGuardMix train (gated) | Bool prompt harm, response harm, refusal; many adversarial prompts | ODC-BY (AI2 Responsible Use Guidelines) | GPT-4 (train), human (test) |
+| ToxiGen annotated train | Bool "hateful toward a group", Choice of the group | MIT; texts written by GPT-3 | human |
+| Measuring Hate Speech | Score per item (insult, humiliation, dehumanisation, violence, …) with the raters' distribution as a soft target; Bool hate speech from the IRT score; Choice of the targeted group | CC BY 4.0 | human, ~3.4 raters per comment |
+| Civil Comments (subsample) | soft Bool toxicity and one more attribute (insult, threat, identity attack, …) | CC0 1.0 | share of human raters |
+
+Plus a replay of the Stage B training data (~40 % of the records) against forgetting.
+
+- **Overlap with the criteria bench is removed at conversion:** Aegis 2.0 train rows whose prompt occurs in its
+  validation or test split (1,246 of them in test) and ToxiGen train texts that occur in its test split (174)
+  are dropped. Both test splits stay the in-domain safety tests; BeaverTails, ToxicChat and OpenAI Moderation
+  (section 4) are the out-of-domain ones.
+- **Left out of Aegis 2.0:** the 5k synthetic refusals (`refusal_data_augmentation`, all safe: they would teach
+  "a refusal is safe" and little else) and 911 redacted prompts.
+
 ## 3. Known problems in the data
 
 ### 3.1 ClapNQ: the passage gives the answerability label away
@@ -136,6 +158,10 @@ Never trained on.
 | ContractNLI | CC BY 4.0 (official site) | held-out source |
 | BANKING77 | CC BY 4.0 | held-out source |
 | MMLU (test) | MIT | held-out source |
+| Aegis 2.0 test, ToxiGen annotated test | CC BY 4.0; MIT | in-domain safety tests of Stage D (criteria bench `answer_harm`, `toxicity`) |
+| BeaverTails 30k test | CC BY-NC 4.0 | harmful answers, out of domain |
+| ToxicChat test (`toxicchat0124`) | CC BY-NC 4.0 | toxicity of real user prompts, out of domain |
+| OpenAI Moderation evaluation set | MIT | unsafe and hateful text, out of domain |
 
 ## 5. Considered and rejected
 
@@ -143,3 +169,8 @@ Non-commercial or unclear terms: ANLI, RACE (also inside MMLU `aux_train`), DREA
 MultiRC, ConTRoL, Yelp and Amazon reviews, AG News, MS MARCO, WikiQA, ASNQ, DocNLI, HellaSwag (wikiHow DMCA),
 ConditionalQA; Yahoo Answers, TREC, SST-5, STS-B and Climate-FEVER (license unverified). LLM-AggreFact and
 TofuEval ask not to be used for training.
+
+Safety (Stage D): BeaverTails, PKU-SafeRLHF and ToxicChat for training (CC BY-NC; the first and last are used
+for evaluation); RealToxicityPrompts (labels from the Perspective API); hh-rlhf red-team attempts (red-teamers'
+own ratings, noisy); Nemotron Safety Guard v3 (translations of Aegis 2.0, would repeat its test); Salad-Data
+(prompts only, automatic labels); tweet_eval (license not stated).

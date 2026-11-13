@@ -50,14 +50,27 @@ def load_laya_encoder(checkpoint: str = "base", attn_implementation: str = "sdpa
 
 
 def resolve_checkpoint(spec: str) -> Path:
-    """A ``save_final`` folder: a local path, or ``hub:<owner>/<repo>/<folder in the repo>`` (downloaded once
-    into the HF cache; a private repo needs ``HF_TOKEN``), e.g. ``hub:Nefelim584/jevlite-runs/stage_a-full-s42/final``."""
+    """A ``save_final`` folder: a local path, or ``hub:<owner>/<repo>[@<revision>][/<folder in the repo>]``
+    (downloaded once into the HF cache; a private repo needs ``HF_TOKEN``), e.g.
+    ``hub:Nefelim584/jevlite-runs/stage_a-full-s42/final``, or a release whose root is the folder:
+    ``hub:Nefelim584/jev-lite@v0.2.0``."""
     if not spec.startswith("hub:"):
         return Path(spec)
-    owner, repo, sub = spec.removeprefix("hub:").split("/", 2)
+    repo_id, revision, sub = parse_hub_spec(spec)
     from huggingface_hub import snapshot_download
 
-    return Path(snapshot_download(f"{owner}/{repo}", allow_patterns=[f"{sub}/*"], token=os.environ.get("HF_TOKEN"))) / sub
+    path = Path(snapshot_download(repo_id, revision=revision, allow_patterns=[f"{sub}/*"] if sub else None,
+                                  token=os.environ.get("HF_TOKEN")))
+    return path / sub if sub else path
+
+
+def parse_hub_spec(spec: str) -> tuple[str, str | None, str]:
+    """``hub:owner/repo@rev/sub/dir`` → ``("owner/repo", "rev", "sub/dir")``; revision and folder are optional."""
+    parts = spec.removeprefix("hub:").split("/", 2)
+    if len(parts) < 2 or not all(parts[:2]):
+        raise ValueError(f"expected hub:<owner>/<repo>[@<revision>][/<folder>], got {spec!r}")
+    repo, _, revision = parts[1].partition("@")
+    return f"{parts[0]}/{repo}", revision or None, parts[2] if len(parts) == 3 else ""
 
 
 def load_base_encoder(cfg: dict, rt: Runtime) -> torch.nn.Module:

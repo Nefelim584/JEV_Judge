@@ -122,7 +122,9 @@ def test_train_writes_logs_predictions_and_final_model(setup, tokenizer, tiny):
     assert len(preds) == 15  # all of test_in + test_ood, not the eval subset
     assert [p.name for p in sorted((run / "checkpoints").iterdir())] == ["step-000006"]
 
-    loaded, _, _ = load_final(run / "final")
+    loaded, _, saved = load_final(run / "final")
+    # the saved length is the one the model runs at after training (encoding.final_max_len), not the base one
+    assert saved["encoding"]["max_len"] == cfg["encoding"]["final_max_len"] == 8192
     batch_model = copy.deepcopy(model).eval()
     for a, b in zip(batch_model.state_dict().values(), loaded.state_dict().values()):
         assert torch.equal(a, b)
@@ -237,9 +239,13 @@ def test_build_model_from_a_stage_checkpoint(setup, tokenizer, tiny, tmp_path, m
     import huggingface_hub
     seen = {}
     monkeypatch.setattr(huggingface_hub, "snapshot_download",
-                        lambda repo, allow_patterns, token=None: seen.update(repo=repo, patterns=allow_patterns) or "/cache/snap")
+                        lambda repo, revision=None, allow_patterns=None, token=None:
+                        seen.update(repo=repo, revision=revision, patterns=allow_patterns) or "/cache/snap")
     assert resolve_checkpoint("hub:Nefelim584/jevlite-runs/stage_a-full-s42/final") == Path("/cache/snap/stage_a-full-s42/final")
-    assert seen == {"repo": "Nefelim584/jevlite-runs", "patterns": ["stage_a-full-s42/final/*"]}
+    assert seen == {"repo": "Nefelim584/jevlite-runs", "revision": None, "patterns": ["stage_a-full-s42/final/*"]}
+    # a release whose root is the save_final folder (Stage C starts from jev-lite v0.2.0)
+    assert resolve_checkpoint("hub:Nefelim584/jev-lite@v0.2.0") == Path("/cache/snap")
+    assert seen == {"repo": "Nefelim584/jev-lite", "revision": "v0.2.0", "patterns": None}
 
 
 def test_heads_get_their_own_learning_rate(setup, tokenizer, tiny):
