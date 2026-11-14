@@ -1,0 +1,52 @@
+# Stage D sampling mix: safety and toxicity (DATASETS.md section 2.3) + a replay of Stage B.
+# Order of the stages: B → D → C. D starts from Stage B (the v0.2.0 release); C then starts from D and
+# replays D's data (configs/mixes/stage_c.yaml), so the stand (the production judge) comes last.
+#
+# Everything is public, and everything is built on Modal (scripts/modal_data.py), nothing on the laptop:
+#   uv run --extra bench modal run scripts/modal_data.py --fetch-stage-b      # Stage B mix (Kaggle output) → volume
+#   uv run --extra bench modal run scripts/modal_data.py --convert stage_d    # the 8 sources → /vol/public
+#   uv run --extra bench modal run scripts/modal_data.py --build stage_d      # this mix → /vol/mix/stage_d
+# STAGE_B_MIX is set by modal_data.py to the volume copy of the Stage B mix.
+#
+# All numbers are a first guess sized from the smoke conversions: read mix_report.md (modal_data.py
+# prints it) and adjust. Aim: ~60 % safety, ~40 % Stage B replay per epoch, 2 epochs.
+
+dir: /vol/public
+tokenizer: answerdotai/ModernBERT-large
+max_len: 2048               # = train.stage_d.max_len; safety texts are short, WildGuardMix responses are not
+seed: 42
+
+total: 60000                # training records per epoch
+primitive_weights: {bool: 0.72, choice: 0.10, score: 0.18}
+run_repeat: {score: 1.0}    # as in Stage B: a Score record at most once per run
+max_repeat: 2.0
+eval_cap: 1000
+dev_cap: 300
+
+sources:
+  # --- safety: responses and prompts (Bool), categories (Choice) ---
+  # fit_only: the harmful part of a long response may sit in its tail, so a cut record is dropped
+  aegis2: {fit_only: true}                       # ~37k Bool + ~10k Choice after the duplicate and refusal filters
+  wildguardmix: {cap: 60000, fit_only: true}     # 3 Bools per row (GPT-4 labels): capped so it does not dominate
+
+  # --- toxicity and hate ---
+  toxigen: {weight: 2.0}                         # ~9k rows, human labels on implicit hate: up-weighted
+  measuring_hate_speech: {cap: 60000}           # ~40k comments: hate Bool, 3 soft Scores, target Choice;
+                                                 # uncapped (163k) it was 90 % of Score and 37 % of Choice
+  civil_comments: {cap: 60000}                   # soft Bools, ~84k rows kept by the converter
+
+  # --- eval only (test_ood): never trained on ---
+  toxic_chat: {}
+  beavertails: {}
+  openai_moderation: {}
+
+  # --- replay of Stage B (which already replays Stage A), against forgetting ---
+  stage_b_replay:
+    path: ["$STAGE_B_MIX/train.e0.jsonl", "$STAGE_B_MIX/train.e1.jsonl"]
+    cap: 60000
+    weight: 3.0
+  # the Stage B test sets and dev, whole and unchanged: Stage B → D forgetting is measured on them
+  stage_b_eval:
+    path: ["$STAGE_B_MIX/test_in.jsonl", "$STAGE_B_MIX/test_ood.jsonl", "$STAGE_B_MIX/dev*.jsonl"]
+    eval_cap: 1000000
+    dev_cap: 3000

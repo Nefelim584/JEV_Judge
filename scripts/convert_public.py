@@ -32,9 +32,11 @@ def stats(records) -> dict:
         by_split_type[r.split][r.type] += 1
         templates[r.field("template")] += 1
         if r.type == "bool":
-            targets["bool"][str(int(r.target))] += 1
+            targets["bool"][str(int(float(r.target) >= 0.5))] += 1  # soft targets (Civil Comments) by majority
         else:
-            targets[r.type][r.candidates[int(r.target)] if r.type == "score" else f"pos{int(r.target)}"] += 1
+            # soft Score targets (raters' distribution, Measuring Hate Speech): counted at their mode
+            idx = max(range(len(r.target)), key=r.target.__getitem__) if isinstance(r.target, list) else int(r.target)
+            targets[r.type][r.candidates[idx] if r.type == "score" else f"pos{idx}"] += 1
             k[r.n_candidates] += 1
         chars.append(len(serialize_state(r.state)))
     chars.sort()

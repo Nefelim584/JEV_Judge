@@ -18,6 +18,9 @@ from .mcqa import ARC, CommonsenseQA, CosmosQA, OpenBookQA, SocialIQa
 from .nli import PAWS, QNLI, SNLI, WANLI, MultiNLI
 from .qa import BoolQ, ClapNQ, NaturalQuestions, SQuAD2
 from .ratings import HelpSteer2, HelpSteer3, SummarizeFromFeedback
+from .safety import (
+    Aegis2, BeaverTails, CivilComments, MeasuringHateSpeech, OpenAIModeration, ToxicChat, ToxiGen, WildGuardMix,
+)
 
 CONVERTERS: dict[str, type[Converter]] = {
     c.name: c
@@ -39,6 +42,10 @@ CONVERTERS: dict[str, type[Converter]] = {
         # judge training data built by code, Stage B (DATASETS.md section 8, todo Phase 4b)
         RAGBenchTrain, HotpotQAJudge, TATQAJudge, FinQAJudge, ClapNQJudge,
         FaithfulnessQA, MiniCheck, TrustData, PsiloQA, Qasper, RAGTruth,
+        # safety and toxicity, Stage D (DATASETS.md section 9)
+        Aegis2, WildGuardMix, ToxiGen, MeasuringHateSpeech, CivilComments,
+        # safety and toxicity, eval only (test_ood)
+        ToxicChat, BeaverTails, OpenAIModeration,
     )
 }
 

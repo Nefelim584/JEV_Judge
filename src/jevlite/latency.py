@@ -371,7 +371,7 @@ def report_markdown(results: Sequence[dict], target_ms: float = TARGET_MS) -> st
                         lambda c, r: f"{c['throughput']['requests_per_s']:.1f} ({c['throughput']['tokens_per_s'] / 1000:.0f}k, "
                                      f"{c['throughput']['batch']})")
         lines += _table(res, "Max |ΔP| vs fp32-sdpa",
-                        lambda c, r: f"{c.get('max_abs_dp', float('nan')):.4f}")
+                        lambda c, r: f"{c['max_abs_dp']:.4f}" if "max_abs_dp" in c else "— (no fp32 run)")
         for name, row in res["variants"].items():
             if "skipped" in row or "error" in row:
                 lines.append(f"- {name}: {row.get('skipped') or row.get('error')}")
