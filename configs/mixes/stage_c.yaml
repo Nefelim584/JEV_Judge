@@ -1,0 +1,47 @@
+# Stage C sampling mix: eval-stand records + Stage D replay (dataset_gen.md section 7, todo Phase 6 Stage C).
+# Order of the stages: B → D → C. C starts from Stage D and replays D's training records, which already
+# hold D's safety data and its Stage B replay; D's test files carry the Stage B tests and the safety tests.
+# Company data: built on Modal into the private volume, never on Kaggle or the Hub, nothing big on the laptop:
+#   uv run --extra bench modal run scripts/modal_data.py --upload-stand data/stand/records/stand.jsonl
+#   uv run --extra bench modal run scripts/modal_data.py --build stage_c
+#   uv run --extra bench modal run scripts/modal_train.py --run stage_c-full-s42 --init /vol/runs/<stage_d run>/final
+# STAND_RECORDS and STAGE_D_MIX are set by modal_data.py to the volume paths.
+#
+# All numbers are a first guess sized for ~2.5k training rows of the stand (≈ 9k Score records): read
+# mix_report.md of the first build and adjust. Aim: every stand Score record once per epoch (repeat ≈ 1),
+# replay ≈ a third of the records against forgetting.
+
+dir: data/stand
+tokenizer: answerdotai/ModernBERT-large
+max_len: 8192               # = train.stage_c.max_len
+seed: 42
+
+total: 25000                # training records per epoch
+primitive_weights: {score: 0.45, bool: 0.42, choice: 0.13}
+run_repeat: {score: 3.0}    # a Score record at most once per epoch (3 epochs), as Stage B's 1.0 over 2 epochs did for replay
+max_repeat: 2.0
+eval_cap: 1000
+dev_cap: 300
+
+sources:
+  # --- the eval stand (scripts/convert_stand.py): Score per criterion, weak faithfulness Bool ---
+  # fit_only: the judge saw the whole state, so a record cut at 8k is dropped, not truncated
+  # eval_cap / dev_cap: every stand test, calib and dev record (the converter draws those splits)
+  stand:
+    path: ["$STAND_RECORDS"]
+    share_alike: false
+    fit_only: true
+    weight: 3.0             # against the replay's Score pool (HelpSteer): ~8.6k × 3 vs ~6k × 1
+    eval_cap: 1000000
+    dev_cap: 1000000
+
+  # --- replay of Stage D (safety + its Stage B replay, which replays Stage A), against forgetting ---
+  stage_d_replay:
+    path: ["$STAGE_D_MIX/train.e0.jsonl", "$STAGE_D_MIX/train.e1.jsonl"]
+    cap: 40000
+  # the Stage D test sets (Stage B's tests + the safety tests) and dev, whole and unchanged:
+  # forgetting from B and from D is measured on them
+  stage_d_eval:
+    path: ["$STAGE_D_MIX/test_in.jsonl", "$STAGE_D_MIX/test_ood.jsonl", "$STAGE_D_MIX/dev*.jsonl"]
+    eval_cap: 1000000
+    dev_cap: 3000
