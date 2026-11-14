@@ -174,3 +174,38 @@ Safety (Stage D): BeaverTails, PKU-SafeRLHF and ToxicChat for training (CC BY-NC
 for evaluation); RealToxicityPrompts (labels from the Perspective API); hh-rlhf red-team attempts (red-teamers'
 own ratings, noisy); Nemotron Safety Guard v3 (translations of Aegis 2.0, would repeat its test); Salad-Data
 (prompts only, automatic labels); tweet_eval (license not stated).
+
+## 6. Where the data and the models are kept
+
+The laptop keeps only what is small or private; the rest is on the HF Hub and pulled on demand into the same
+`data/...` paths, so scripts need no change (moved there on 2026-11-14).
+
+| What | Where | Visibility |
+|---|---|---|
+| Converted public datasets (`data/public/*.jsonl` + `.stats.json`) | dataset `Nefelim584/jevlite-data`, `public/` | private |
+| Stage A mixes (`data/mix/stage_a`, `stage_a_nosa`) | dataset `Nefelim584/jevlite-data`, `mix/` | private |
+| Source downloads (`data/raw`, see below) | dataset `Nefelim584/jevlite-data`, `raw/` | private |
+| Run folders: `final` model, `config.yaml`, `metrics.jsonl`, `preds.jsonl`, logs, reports | model `Nefelim584/jevlite-runs`, `<run>/` | private |
+| Released model | model `Nefelim584/jev-lite` (tags `v0.1.0`, `v0.2.0`) | public |
+| Stage D and Stage C mixes, eval-stand data | Modal volume `jevlite-stage-c` (and git-ignored `data/`) | private, never on the Hub |
+
+- **Why private:** the converted data and the mixes hold CC BY-SA and CC BY-NC records and LLM-written
+  texts (section 1); a public copy would redistribute them under terms we cannot grant. Do not make
+  `jevlite-data` public.
+- **Raw downloads:** `fetch()` (`jevlite/data/public/base.py`) downloads a source into `data/raw` once
+  (`JEVLITE_RAW_DIR` overrides the folder); `raw/` on the Hub keeps the files placed there by hand. The
+  FEVER Wikipedia dump (`fever/wiki-pages`, ~7 GB) is not kept: the FEVER converter fetches it again.
+- **Company data** (eval-stand rows, the judge's criteria, Stage C mixes and runs) stays in git-ignored
+  `data/` and the Modal volume only, never on the Hub or in this repository.
+
+Pulling back (`--include` repeats for several patterns):
+
+```bash
+uv run hf download Nefelim584/jevlite-data --repo-type dataset --local-dir data --include "public/helpsteer2.jsonl"
+uv run hf download Nefelim584/jevlite-data --repo-type dataset --local-dir data --include "mix/stage_a/*"
+uv run hf download Nefelim584/jevlite-runs --local-dir data/runs --include "stage_d-full-s42/*"
+```
+
+Models need no local copy: every `model.init_checkpoint`, `--init`, `--jevlite` or `JEVLITE_MODEL` takes a
+Hub spec, resolved into the HF cache (`hub:Nefelim584/jevlite-runs/stage_d-full-s42/final`,
+`hub:Nefelim584/jev-lite@v0.2.0`). The cache (`~/.cache/huggingface`) is cleaned with `hf cache delete`.
