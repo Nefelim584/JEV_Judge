@@ -82,10 +82,10 @@ Plus a replay of the Stage A training data (26% of the records) against forgetti
 - **Left out:** ConditionalQA (no license, research only); Trust-Data's ELI5 part (no license); RAGTruth's
   "Recent News" articles (unclear terms).
 
-### 2.3 Stage D: safety and toxicity (planned; order B → D → C)
+### 2.3 Stage D: safety and toxicity (v0.3.0 on)
 
-Built by `src/jevlite/data/public/safety.py` (approved 2026-11-13). Stage D starts from Stage B, and Stage C
-(the eval stand) starts from Stage D and replays it, so the production judge's criteria come last.
+Built by `src/jevlite/data/public/safety.py` (approved 2026-11-13). Stage D starts from Stage B (the v0.2.0
+weights); released as v0.3.0.
 
 | Dataset | What we build | License | Labels |
 |---|---|---|---|

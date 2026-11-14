@@ -1,6 +1,6 @@
 [project]
 name = "jevlite"
-version = "0.2.0"
+version = "0.3.0"
 description = "Typed decision model: Choice / Score / Bool answers with calibrated probabilities"
 readme = "README.md"
 license = "Apache-2.0"
