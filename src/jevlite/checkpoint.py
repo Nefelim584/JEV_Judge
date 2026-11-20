@@ -196,11 +196,11 @@ def load_final(path: str | Path, device: str | torch.device = "cpu", attn_implem
     """``(model, tokenizer, cfg)`` from a ``save_final`` folder."""
     from transformers import AutoModel, AutoTokenizer
 
-    from .model import JevLite
+    from .model import JevLite, disable_kv_cache
 
     path = Path(path)
     cfg = yaml.safe_load((path / "jevlite.yaml").read_text())
-    encoder = AutoModel.from_pretrained(path / "encoder", attn_implementation=attn_implementation, dtype=torch.float32)
+    encoder = disable_kv_cache(AutoModel.from_pretrained(path / "encoder", attn_implementation=attn_implementation, dtype=torch.float32))
     m = cfg["model"]
     model = JevLite(encoder, hidden=encoder.config.hidden_size, trunk_dim=m["trunk_dim"], dropout=m["dropout"],
                     readout=m.get("readout", "marker"), decision_layers=m.get("decision_layers", 0))

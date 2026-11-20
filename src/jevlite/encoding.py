@@ -7,6 +7,9 @@ Several Bool claims about one state can share a sequence as a :class:`ClaimGroup
 Pair mode (ablation): one sequence per candidate, ``[CLS] question + candidate [SEP] state [SEP]``,
 read out at ``[CLS]``.
 
+Pair-last mode (causal backbones, e.g. Qwen3-Embedding): one sequence per candidate,
+``state \\n\\n question + candidate <|endoftext|>``, read out at the last token.
+
 Both encoders return :class:`EncodedSequence` objects with explicit marker positions, so batching and
 read-out are the same for both modes. Only the state is ever truncated.
 """
@@ -21,7 +24,7 @@ from typing import Sequence
 
 from .schema import BoolQuestion, ChoiceQuestion, Question, ScoreQuestion, State
 
-ENCODING_MODES = ("packed", "pair")
+ENCODING_MODES = ("packed", "pair", "pair_last")
 
 
 def serialize_state(state: State) -> str:
@@ -208,6 +211,43 @@ class PairEncoder(_TextEncoder):
         return out
 
 
+class LastTokenPairEncoder(PairEncoder):
+    """Pair mode for causal (decoder) backbones such as Qwen3-Embedding: one sequence per candidate,
+    ``state \\n\\n question + candidate <|endoftext|>``, read out at the last token.
+
+    A causal model's token sees only what is to its left, so the read-out token goes last and the
+    question after the state: the read-out then sees everything, and the state is a prefix shared by
+    every candidate and question of a request (prefix caching, later). ``<|endoftext|>`` is the token
+    Qwen3-Embedding is pooled at. No ``[CLS]``/``[SEP]``: decoder tokenizers have none.
+    """
+
+    READOUT_TOKEN = "<|endoftext|>"
+    SEPARATOR = "\n\n"
+
+    def __init__(self, tokenizer, max_len: int, head_ratio: float = 0.5):
+        super().__init__(tokenizer, max_len, head_ratio)
+        self.readout_id = tokenizer.convert_tokens_to_ids(self.READOUT_TOKEN)
+        if self.readout_id is None or self.readout_id == tokenizer.unk_token_id:
+            raise ValueError(f"pair_last encoding needs a tokenizer with {self.READOUT_TOKEN!r}")
+        self.sep_ids = self._tokenize([self.SEPARATOR])[0]
+        self.NUM_SPECIAL = len(self.sep_ids) + 1  # separator + read-out token
+
+    def encode_question(self, question: Question, state_ids: list[int], context: str | None = None) -> EncodedQuestion:
+        a_ids = self._tokenize(segment_a_texts(question, context))
+        budget = self._state_budget(max(len(a) for a in a_ids), f"question {question.id!r}")
+        b_ids, truncated = truncate_head_tail(state_ids, budget, self.head_ratio)
+        rows = [[*b_ids, *self.sep_ids, *a, self.readout_id] for a in a_ids]
+        return EncodedQuestion(input_ids=rows, truncated=truncated)
+
+    def encode_item(self, item: Item, state_ids: list[int]) -> list[EncodedSequence]:
+        """One sequence per candidate, read out at its last token."""
+        out = []
+        for j, question in enumerate(item_questions(item)):
+            encoded = self.encode_question(question, state_ids, item_context(item))
+            out += [EncodedSequence(ids, [(len(ids) - 1, j, k)], encoded.truncated) for k, ids in enumerate(encoded.input_ids)]
+        return out
+
+
 class PackedEncoder(_TextEncoder):
     """One sequence per item, ``[CLS] header [SEP] state [SEP]``, with a ``[MASK]`` marker per candidate."""
 
@@ -248,7 +288,7 @@ def text_encoder_from_config(cfg: dict, tokenizer, max_len: int | None = None) -
     """The encoder selected by ``encoding.mode``; ``max_len`` overrides ``encoding.max_len`` (e.g. per stage)."""
     enc = cfg["encoding"]
     mode = enc.get("mode", "packed")
-    cls = {"packed": PackedEncoder, "pair": PairEncoder}.get(mode)
+    cls = {"packed": PackedEncoder, "pair": PairEncoder, "pair_last": LastTokenPairEncoder}.get(mode)
     if cls is None:
         raise ValueError(f"unknown encoding.mode {mode!r}, expected one of {ENCODING_MODES}")
     return cls(tokenizer, max_len or enc["max_len"], enc["head_ratio"])
