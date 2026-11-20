@@ -169,6 +169,10 @@ class Endpointer:
                 return self._end("turn", ms)
         return None
 
+    def close(self) -> Endpoint | None:
+        """End of the stream: end an open turn now (reason ``eos``), else None."""
+        return self._end("eos", 0.0) if self.in_turn else None
+
     def _end(self, reason: str, decide_ms: float) -> Endpoint:
         e = Endpoint(sample=self.pos, start_sample=self.start_sample, reason=reason, decide_ms=decide_ms,
                      turn_calls=self.turn_calls, turn_ms=self.turn_ms, p_turn=self.p_turn)
