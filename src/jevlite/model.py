@@ -27,6 +27,15 @@ from .schema import PRIM_TYPES
 
 READOUTS = ("marker", "mean")
 INITS = ("base", "laya", "checkpoint")
+BASE_DTYPES = {"fp32": torch.float32, "bf16": torch.bfloat16}
+
+
+def disable_kv_cache(encoder: torch.nn.Module) -> torch.nn.Module:
+    """A decoder backbone (Qwen3-Embedding) builds a KV cache on every forward by default; the judge
+    never generates, so the cache is only wasted memory. Encoders have no ``use_cache``: unchanged."""
+    if hasattr(encoder.config, "use_cache"):
+        encoder.config.use_cache = False
+    return encoder
 
 
 def load_laya_encoder(checkpoint: str = "base", attn_implementation: str = "sdpa") -> torch.nn.Module:
@@ -76,11 +85,19 @@ def parse_hub_spec(spec: str) -> tuple[str, str | None, str]:
 def load_base_encoder(cfg: dict, rt: Runtime) -> torch.nn.Module:
     """The initial encoder weights selected by ``model.init``: ``base`` (``model.base`` from the Hub),
     ``laya`` (``model.laya_checkpoint``) or ``checkpoint`` (the encoder of a ``save_final`` folder named by
-    ``model.init_checkpoint``: a later stage starts from an earlier one, e.g. Stage B from Stage A)."""
+    ``model.init_checkpoint``: a later stage starts from an earlier one, e.g. Stage B from Stage A).
+
+    ``model.base_dtype`` (``init: base`` only): ``fp32`` (default, AMP casts on the fly) or ``bf16`` for a
+    large backbone under LoRA (Qwen3-Embedding-8B: 16 GB instead of 32); PEFT keeps the adapters in fp32."""
     m = cfg["model"]
     init = m.get("init", "base")
     if init == "base":
-        return AutoModel.from_pretrained(m["base"], attn_implementation=rt.attn_implementation, dtype=torch.float32)
+        dtype = m.get("base_dtype", "fp32")
+        if dtype not in BASE_DTYPES:
+            raise ValueError(f"unknown model.base_dtype {dtype!r}, expected one of {tuple(BASE_DTYPES)}")
+        if dtype != "fp32" and cfg["tuning"]["mode"] != "lora":
+            raise ValueError("model.base_dtype other than fp32 needs tuning.mode: lora (full FT keeps fp32 master weights)")
+        return AutoModel.from_pretrained(m["base"], attn_implementation=rt.attn_implementation, dtype=BASE_DTYPES[dtype])
     if init == "laya":
         return load_laya_encoder(m.get("laya_checkpoint", "base"), rt.attn_implementation)
     if init == "checkpoint":
@@ -111,7 +128,7 @@ def build_encoder(cfg: dict, rt: Runtime, mode: str | None = None) -> torch.nn.M
     ``mode`` defaults to ``cfg['tuning']['mode']``: ``lora`` or ``full``.
     """
     mode = mode or cfg["tuning"]["mode"]
-    encoder = load_base_encoder(cfg, rt)
+    encoder = disable_kv_cache(load_base_encoder(cfg, rt))
     if cfg["train"]["gradient_checkpointing"]:
         encoder.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
@@ -146,7 +163,7 @@ class JevLite(nn.Module):
 
     ``readout``:
       - ``marker``: the hidden state at each marker: ``[MASK]`` in packed mode, ``[CLS]`` of the
-        candidate's row in pair mode;
+        candidate's row in pair mode, its last token (``<|endoftext|>``) in pair_last mode;
       - ``mean``: the mean over the candidate's row (pair mode only: one candidate per row).
 
     ``decision_layers > 0`` adds a Laya-style block of transformer layers over the encoder output
