@@ -52,6 +52,12 @@ serve = [
     "kernels>=0.17,<0.18",
     "modal>=1.6",
 ]
+# Voice pipeline (todo Phase 9b): endpoint detection (Silero VAD, MIT; Smart Turn v3.2 ONNX, BSD-2) and audio I/O.
+voice = [
+    "onnxruntime>=1.20",
+    "silero-vad>=6.2.3",
+    "soundfile>=0.12",
+]
 reports = [
     "markdown-it-py>=3",
     "matplotlib>=3.8",
